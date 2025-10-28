@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">My Application</string>
+    <string name="cd_back">Quay lại</string>
+    <string name="cd_tab_songs">Tab Bài hát</string>
+    <string name="cd_tab_albums">Tab Album</string>
+    <string name="cd_tab_artists">Tab Ca sĩ</string>
+    <string name="cd_tab_favorites">Tab Yêu thích</string>
+    <string name="cd_library_list">Danh sách bài hát trong thư viện</string>
+    <string name="cd_tab_library">Thư viện</string>
+
+</resources>

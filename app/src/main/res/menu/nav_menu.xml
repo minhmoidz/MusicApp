@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/nav_home"
+            android:icon="@android:drawable/ic_menu_compass"
+            android:title="Trang chủ" />
+
+        <item
+            android:id="@+id/nav_library"
+            android:icon="@android:drawable/ic_menu_gallery"
+            android:title="Thư viện" />
+
+        <item
+            android:id="@+id/nav_favorites"
+            android:icon="@android:drawable/btn_star_big_on"
+            android:title="Yêu thích" />
+
+        <item
+            android:id="@+id/nav_playlists"
+            android:icon="@android:drawable/ic_menu_sort_by_size"
+            android:title="Playlists" />
+
+        <item
+            android:id="@+id/nav_history"
+            android:icon="@android:drawable/ic_menu_recent_history"
+            android:title="Lịch sử phát" />
+    </group>
+
+    <item android:title="Cài đặt">
+        <menu>
+            <item
+                android:id="@+id/nav_profile"
+                android:icon="@android:drawable/ic_menu_myplaces"
+                android:title="Hồ sơ cá nhân" />
+
+            <item
+                android:id="@+id/nav_settings"
+                android:icon="@android:drawable/ic_menu_preferences"
+                android:title="Cài đặt" />
+
+            <item
+                android:id="@+id/nav_about"
+                android:icon="@android:drawable/ic_menu_info_details"
+                android:title="Về ứng dụng" />
+
+            <item
+                android:id="@+id/nav_logout"
+                android:icon="@android:drawable/ic_menu_close_clear_cancel"
+                android:title="Đăng xuất" />
+        </menu>
+    </item>
+
+</menu>
