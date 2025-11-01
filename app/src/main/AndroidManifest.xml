@@ -33,7 +33,8 @@
 
         <activity
             android:name=".MainActivity"
-            android:screenOrientation="portrait" />
+            android:screenOrientation="fullSensor"
+            tools:ignore="DiscouragedApi" />
 
         <activity
             android:name=".SearchActivity"
@@ -49,8 +50,7 @@
 
         <activity
             android:name=".playlist.PlayerActivity"
-            android:screenOrientation="portrait" />
-
+            android:launchMode="singleTask" />
         <service
             android:name=".MusicService"
             android:enabled="true"

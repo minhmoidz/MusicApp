@@ -86,20 +86,27 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_player);
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // Khi click bài mới từ MainActivity
+        setIntent(intent);
 
-        favoritesManager = FavoritesManager.getInstance(this);
+        // Stop current song
+        if (mediaPlayer != null) {
+            try {
+                if (mediaPlayer.isPlaying()) {
+                    mediaPlayer.stop();
+                }
+                mediaPlayer.reset();
+            } catch (Exception e) {
+                Log.e(TAG, "Reset error: " + e.getMessage());
+            }
+        }
 
-        initViews();
+        // Load new playlist
         loadPlaylistData();
         loadCurrentSong();
         setupMediaPlayer();
-        setupControls();
-
-        // Register broadcast receiver for MainActivity controls
-        registerControlReceiver();
     }
 
     private void initViews() {
@@ -742,20 +749,27 @@ public class PlayerActivity extends AppCompatActivity {
     private void stopMusic() {
         if (mediaPlayer != null) {
             try {
-                if (mediaPlayer.isPlaying()) mediaPlayer.stop();
+                if (mediaPlayer.isPlaying()) {
+                    mediaPlayer.stop();
+                }
                 mediaPlayer.release();
+                mediaPlayer = null;
             } catch (Exception e) {
                 Log.e(TAG, "Stop error: " + e.getMessage());
             }
-            mediaPlayer = null;
         }
 
         isPlaying = false;
 
-        // Notify MainActivity player stopped
+        // Notify MainActivity player stopped ONLY when user closes
         Intent intent = new Intent("PLAYER_UPDATE");
         intent.putExtra("action", "PLAYER_STOPPED");
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+
+        // Stop handler
+        if (handler != null) {
+            handler.removeCallbacks(updateSeekBar);
+        }
 
         finish();
     }
@@ -765,29 +779,33 @@ public class PlayerActivity extends AppCompatActivity {
         super.onDestroy();
         LocalBroadcastManager.getInstance(this).unregisterReceiver(controlReceiver);
 
-        if (mediaPlayer != null) {
+        // ONLY stop if user explicitly closed (not just minimized)
+        if (isFinishing() && mediaPlayer != null && !isPlaying) {
             try {
-                if (mediaPlayer.isPlaying()) mediaPlayer.stop();
+                mediaPlayer.stop();
                 mediaPlayer.release();
+                mediaPlayer = null;
+
+                // Notify MainActivity player fully stopped
+                Intent intent = new Intent("PLAYER_UPDATE");
+                intent.putExtra("action", "PLAYER_STOPPED");
+                LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
             } catch (Exception e) {
                 Log.e(TAG, "Release error: " + e.getMessage());
             }
-            mediaPlayer = null;
         }
+
         if (handler != null) {
             handler.removeCallbacks(updateSeekBar);
         }
-
-        // Notify MainActivity
-        Intent intent = new Intent("PLAYER_UPDATE");
-        intent.putExtra("action", "PLAYER_STOPPED");
-        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         // Keep playing in background
+        // Send final update before pausing
+        sendUpdateToMain();
     }
 
     @Override
@@ -795,12 +813,26 @@ public class PlayerActivity extends AppCompatActivity {
         super.onResume();
         // Send update when resumed
         sendUpdateToMain();
+
+        // Restart seekbar updater if playing
+        if (mediaPlayer != null && isPlaying) {
+            startSeekBarUpdater();
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Activity is going to background, make sure MainActivity knows
+        sendUpdateToMain();
     }
 
     @Override
     public void onBackPressed() {
-        // Minimize instead of closing
+        // Don't finish activity, just minimize
+        // This keeps MediaPlayer alive
         super.onBackPressed();
-        moveTaskToBack(true);
+        sendUpdateToMain();
+        moveTaskToBack(false);
     }
 }

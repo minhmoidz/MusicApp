@@ -86,8 +86,14 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     private Runnable searchRunnable;
     private Runnable updateProgressRunnable;
 
-    // Player state
+    // Player state - LƯU TRẠNG THÁI
     private boolean isPlayerActive = false;
+    private String currentTitle = "";
+    private String currentArtist = "";
+    private String currentCover = "";
+    private boolean currentIsPlaying = false;
+    private int currentProgress = 0;
+    private int currentMax = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
