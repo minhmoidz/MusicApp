@@ -1,6 +1,10 @@
 package com.example.musicplayer.playlist;
 
 import android.animation.ValueAnimator;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
@@ -24,11 +28,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.example.musicplayer.R;
+import com.example.musicplayer.profile.FavoritesManager;
 
 import org.json.JSONObject;
 
@@ -62,6 +68,9 @@ public class PlayerActivity extends AppCompatActivity {
 
     private int dominantColor = Color.parseColor("#1DB954");
 
+    // Favorites Manager
+    private FavoritesManager favoritesManager;
+
     public static class Song {
         String title;
         String artist;
@@ -81,11 +90,16 @@ public class PlayerActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_player);
 
+        favoritesManager = FavoritesManager.getInstance(this);
+
         initViews();
         loadPlaylistData();
         loadCurrentSong();
         setupMediaPlayer();
         setupControls();
+
+        // Register broadcast receiver for MainActivity controls
+        registerControlReceiver();
     }
 
     private void initViews() {
@@ -149,13 +163,13 @@ public class PlayerActivity extends AppCompatActivity {
         txtTitle.setText(song.title != null ? song.title : "Unknown");
         txtArtist.setText(song.artist != null ? song.artist : "Unknown");
 
-        // Fade in animation
+        updateLikeButton();
+
         txtTitle.setAlpha(0f);
         txtArtist.setAlpha(0f);
         txtTitle.animate().alpha(1f).setDuration(500).start();
         txtArtist.animate().alpha(1f).setDuration(500).setStartDelay(100).start();
 
-        // Load album cover with Glide and extract colors
         if (song.cover != null && !song.cover.isEmpty()) {
             Glide.with(this)
                     .asBitmap()
@@ -168,13 +182,8 @@ public class PlayerActivity extends AppCompatActivity {
                         public void onResourceReady(Bitmap bitmap, Transition<? super Bitmap> transition) {
                             imgCover.setImageBitmap(bitmap);
 
-                            // Extract dominant color from bitmap
                             int extractedColor = extractDominantColor(bitmap);
-
-                            // Animate color change
                             animateColorChange(extractedColor);
-
-                            // Set blurred background
                             setBlurredBackground(bitmap);
                         }
 
@@ -188,16 +197,30 @@ public class PlayerActivity extends AppCompatActivity {
             imgBackground.setImageResource(android.R.color.black);
         }
 
-        // Fetch lyrics
         if (song.artist != null && song.title != null) {
             txtLyrics.setText("Đang tải lời bài hát...");
             new Thread(() -> fetchLyrics(song.artist, song.title)).start();
+        }
+
+        // Send update to MainActivity
+        sendUpdateToMain();
+    }
+
+    private void updateLikeButton() {
+        Song song = playlist.get(currentSongIndex);
+        isLiked = favoritesManager.isFavorite(song.title, song.artist);
+
+        if (isLiked) {
+            btnLike.setImageResource(android.R.drawable.btn_star_big_on);
+            btnLike.setColorFilter(Color.RED);
+        } else {
+            btnLike.setImageResource(android.R.drawable.btn_star_big_off);
+            btnLike.setColorFilter(Color.WHITE);
         }
     }
 
     private void setBlurredBackground(Bitmap originalBitmap) {
         try {
-            // Resize bitmap for faster blur
             int width = originalBitmap.getWidth() / 8;
             int height = originalBitmap.getHeight() / 8;
             Bitmap smallBitmap = Bitmap.createScaledBitmap(originalBitmap, width, height, false);
@@ -225,16 +248,13 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
-    // Extract dominant color from bitmap manually
     private int extractDominantColor(Bitmap bitmap) {
         try {
-            // Sample pixels from center area
             int width = bitmap.getWidth();
             int height = bitmap.getHeight();
             int centerX = width / 2;
             int centerY = height / 2;
 
-            // Sample size
             int sampleSize = Math.min(width, height) / 4;
 
             long redSum = 0;
@@ -242,7 +262,6 @@ public class PlayerActivity extends AppCompatActivity {
             long blueSum = 0;
             int pixelCount = 0;
 
-            // Sample pixels in a grid pattern
             for (int x = centerX - sampleSize/2; x < centerX + sampleSize/2; x += 5) {
                 for (int y = centerY - sampleSize/2; y < centerY + sampleSize/2; y += 5) {
                     if (x >= 0 && x < width && y >= 0 && y < height) {
@@ -252,7 +271,6 @@ public class PlayerActivity extends AppCompatActivity {
                         int green = Color.green(pixel);
                         int blue = Color.blue(pixel);
 
-                        // Skip very dark or very light pixels
                         int brightness = (red + green + blue) / 3;
                         if (brightness > 30 && brightness < 225) {
                             redSum += red;
@@ -269,11 +287,10 @@ public class PlayerActivity extends AppCompatActivity {
                 int avgGreen = (int)(greenSum / pixelCount);
                 int avgBlue = (int)(blueSum / pixelCount);
 
-                // Boost saturation for more vibrant color
                 float[] hsv = new float[3];
                 Color.RGBToHSV(avgRed, avgGreen, avgBlue, hsv);
-                hsv[1] = Math.min(1.0f, hsv[1] * 1.3f); // Increase saturation
-                hsv[2] = Math.min(1.0f, hsv[2] * 1.1f); // Slightly increase brightness
+                hsv[1] = Math.min(1.0f, hsv[1] * 1.3f);
+                hsv[2] = Math.min(1.0f, hsv[2] * 1.1f);
 
                 return Color.HSVToColor(hsv);
             }
@@ -282,7 +299,6 @@ public class PlayerActivity extends AppCompatActivity {
             Log.e(TAG, "Color extraction error: " + e.getMessage());
         }
 
-        // Default color if extraction fails
         return Color.parseColor("#1DB954");
     }
 
@@ -347,7 +363,6 @@ public class PlayerActivity extends AppCompatActivity {
                 isPlaying = true;
                 btnPlayPause.setImageResource(android.R.drawable.ic_media_pause);
 
-                // Scale animation for play button
                 btnPlayPause.setScaleX(0.8f);
                 btnPlayPause.setScaleY(0.8f);
                 btnPlayPause.animate().scaleX(1f).scaleY(1f).setDuration(300).start();
@@ -356,6 +371,9 @@ public class PlayerActivity extends AppCompatActivity {
                 startDiscAnimation();
 
                 Toast.makeText(this, "♫ " + song.title, Toast.LENGTH_SHORT).show();
+
+                // Notify MainActivity
+                sendUpdateToMain();
             });
 
             mediaPlayer.setOnErrorListener((mp, what, extra) -> {
@@ -388,38 +406,13 @@ public class PlayerActivity extends AppCompatActivity {
             stopDiscAnimation();
             seekBar.setProgress(0);
             txtCurrentTime.setText("00:00");
+            sendUpdateToMain();
         }
     }
 
     private void setupControls() {
         // Play/Pause
-        btnPlayPause.setOnClickListener(v -> {
-            if (mediaPlayer == null) return;
-
-            try {
-                if (isPlaying) {
-                    mediaPlayer.pause();
-                    stopDiscAnimation();
-                    btnPlayPause.setImageResource(android.R.drawable.ic_media_play);
-                } else {
-                    mediaPlayer.start();
-                    startDiscAnimation();
-                    btnPlayPause.setImageResource(android.R.drawable.ic_media_pause);
-                }
-
-                // Pulse animation
-                btnPlayPause.animate()
-                        .scaleX(0.85f).scaleY(0.85f)
-                        .setDuration(100)
-                        .withEndAction(() ->
-                                btnPlayPause.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
-                        ).start();
-
-                isPlaying = !isPlaying;
-            } catch (Exception e) {
-                Log.e(TAG, "Error: " + e.getMessage());
-            }
-        });
+        btnPlayPause.setOnClickListener(v -> togglePlayPause());
 
         // Next button
         btnNext.setOnClickListener(v -> {
@@ -456,18 +449,34 @@ public class PlayerActivity extends AppCompatActivity {
 
         // Like button
         btnLike.setOnClickListener(v -> {
-            isLiked = !isLiked;
-            animateButton(v);
+            Song song = playlist.get(currentSongIndex);
 
             if (isLiked) {
-                btnLike.setImageResource(android.R.drawable.btn_star_big_on);
-                btnLike.setColorFilter(Color.RED);
-                Toast.makeText(this, "❤️ Đã thêm vào yêu thích", Toast.LENGTH_SHORT).show();
+                boolean removed = favoritesManager.removeFavorite(song.title, song.artist);
+                if (removed) {
+                    isLiked = false;
+                    btnLike.setImageResource(android.R.drawable.btn_star_big_off);
+                    btnLike.setColorFilter(Color.WHITE);
+                    Toast.makeText(this, "🤍 Đã bỏ yêu thích", Toast.LENGTH_SHORT).show();
+                }
             } else {
-                btnLike.setImageResource(android.R.drawable.btn_star_big_off);
-                btnLike.setColorFilter(Color.WHITE);
-                Toast.makeText(this, "🤍 Đã bỏ yêu thích", Toast.LENGTH_SHORT).show();
+                boolean added = favoritesManager.addFavorite(song.title, song.artist, song.cover, song.preview);
+                if (added) {
+                    isLiked = true;
+                    btnLike.setImageResource(android.R.drawable.btn_star_big_on);
+                    btnLike.setColorFilter(Color.RED);
+                    Toast.makeText(this, "❤️ Đã thêm vào yêu thích", Toast.LENGTH_SHORT).show();
+                }
             }
+
+            animateButton(v);
+
+            v.animate()
+                    .scaleX(1.3f).scaleY(1.3f)
+                    .setDuration(150)
+                    .withEndAction(() ->
+                            v.animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+                    ).start();
         });
 
         // Download button
@@ -476,8 +485,11 @@ public class PlayerActivity extends AppCompatActivity {
             Toast.makeText(this, "⬇️ Tính năng tải xuống đang phát triển", Toast.LENGTH_SHORT).show();
         });
 
-        // Back button
-        btnBack.setOnClickListener(v -> finish());
+        // Back button - Minimize to MainActivity
+        btnBack.setOnClickListener(v -> {
+            // Don't finish, just move to back
+            moveTaskToBack(true);
+        });
 
         // SeekBar
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -495,6 +507,34 @@ public class PlayerActivity extends AppCompatActivity {
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
+    }
+
+    private void togglePlayPause() {
+        if (mediaPlayer == null) return;
+
+        try {
+            if (isPlaying) {
+                mediaPlayer.pause();
+                stopDiscAnimation();
+                btnPlayPause.setImageResource(android.R.drawable.ic_media_play);
+            } else {
+                mediaPlayer.start();
+                startDiscAnimation();
+                btnPlayPause.setImageResource(android.R.drawable.ic_media_pause);
+            }
+
+            btnPlayPause.animate()
+                    .scaleX(0.85f).scaleY(0.85f)
+                    .setDuration(100)
+                    .withEndAction(() ->
+                            btnPlayPause.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                    ).start();
+
+            isPlaying = !isPlaying;
+            sendUpdateToMain();
+        } catch (Exception e) {
+            Log.e(TAG, "Error: " + e.getMessage());
+        }
     }
 
     private void animateButton(View view) {
@@ -522,7 +562,6 @@ public class PlayerActivity extends AppCompatActivity {
             currentSongIndex = (currentSongIndex + 1) % playlist.size();
         }
 
-        // Slide out animation
         imgCover.animate().alpha(0f).setDuration(200).withEndAction(() -> {
             loadCurrentSong();
             setupMediaPlayer();
@@ -616,7 +655,11 @@ public class PlayerActivity extends AppCompatActivity {
                         int currentPos = mediaPlayer.getCurrentPosition();
                         seekBar.setProgress(currentPos);
                         txtCurrentTime.setText(formatTime(currentPos));
-                        handler.postDelayed(this, 500);
+
+                        // Send update to MainActivity every second
+                        sendUpdateToMain();
+
+                        handler.postDelayed(this, 1000);
                     } catch (Exception e) {
                         Log.e(TAG, "Update error: " + e.getMessage());
                     }
@@ -652,9 +695,76 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
+    // ========== BROADCAST COMMUNICATION ==========
+
+    private void sendUpdateToMain() {
+        if (playlist == null || currentSongIndex >= playlist.size()) return;
+
+        Song song = playlist.get(currentSongIndex);
+        int progress = mediaPlayer != null ? mediaPlayer.getCurrentPosition() : 0;
+        int max = mediaPlayer != null ? mediaPlayer.getDuration() : 0;
+
+        Intent intent = new Intent("PLAYER_UPDATE");
+        intent.putExtra("action", "UPDATE_UI");
+        intent.putExtra("title", song.title);
+        intent.putExtra("artist", song.artist);
+        intent.putExtra("cover", song.cover);
+        intent.putExtra("isPlaying", isPlaying);
+        intent.putExtra("progress", progress);
+        intent.putExtra("max", max);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+    }
+
+    private BroadcastReceiver controlReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getStringExtra("action");
+
+            if ("TOGGLE_PLAY_PAUSE".equals(action)) {
+                togglePlayPause();
+            } else if ("NEXT".equals(action)) {
+                playNext();
+            } else if ("PREVIOUS".equals(action)) {
+                playPrevious();
+            } else if ("STOP".equals(action)) {
+                stopMusic();
+            } else if ("REQUEST_UPDATE".equals(action)) {
+                sendUpdateToMain();
+            }
+        }
+    };
+
+    private void registerControlReceiver() {
+        IntentFilter filter = new IntentFilter("PLAYER_CONTROL");
+        LocalBroadcastManager.getInstance(this).registerReceiver(controlReceiver, filter);
+    }
+
+    private void stopMusic() {
+        if (mediaPlayer != null) {
+            try {
+                if (mediaPlayer.isPlaying()) mediaPlayer.stop();
+                mediaPlayer.release();
+            } catch (Exception e) {
+                Log.e(TAG, "Stop error: " + e.getMessage());
+            }
+            mediaPlayer = null;
+        }
+
+        isPlaying = false;
+
+        // Notify MainActivity player stopped
+        Intent intent = new Intent("PLAYER_UPDATE");
+        intent.putExtra("action", "PLAYER_STOPPED");
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+
+        finish();
+    }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(controlReceiver);
+
         if (mediaPlayer != null) {
             try {
                 if (mediaPlayer.isPlaying()) mediaPlayer.stop();
@@ -667,16 +777,30 @@ public class PlayerActivity extends AppCompatActivity {
         if (handler != null) {
             handler.removeCallbacks(updateSeekBar);
         }
+
+        // Notify MainActivity
+        Intent intent = new Intent("PLAYER_UPDATE");
+        intent.putExtra("action", "PLAYER_STOPPED");
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        if (mediaPlayer != null && isPlaying) {
-            mediaPlayer.pause();
-            isPlaying = false;
-            stopDiscAnimation();
-            btnPlayPause.setImageResource(android.R.drawable.ic_media_play);
-        }
+        // Keep playing in background
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Send update when resumed
+        sendUpdateToMain();
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Minimize instead of closing
+        super.onBackPressed();
+        moveTaskToBack(true);
     }
 }

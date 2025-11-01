@@ -160,6 +160,15 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
+        // ✅ Kiểm tra tài khoản mặc định trước
+        if (username.equals("admin") && password.equals("123456")) {
+            sessionManager.saveToken("default_token_123", TOKEN_EXPIRATION_SECONDS);
+            Toast.makeText(this, "Đăng nhập mặc định thành công!", Toast.LENGTH_SHORT).show();
+            startMainActivity();
+            return;
+        }
+
+        // Nếu không trùng thì gọi API thật
         LoginRequest loginRequest = new LoginRequest(username, password);
 
         authApi.login(loginRequest).enqueue(new Callback<AuthTokenResponse>() {
@@ -183,6 +192,7 @@ public class LoginActivity extends AppCompatActivity {
             }
         });
     }
+
 
     private void startMainActivity() {
         Intent intent = new Intent(this, MainActivity.class);

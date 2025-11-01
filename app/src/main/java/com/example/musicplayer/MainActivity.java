@@ -1,7 +1,9 @@
-
 package com.example.musicplayer;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -11,17 +13,22 @@ import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.cardview.widget.CardView;
 import androidx.core.view.GravityCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.bumptech.glide.Glide;
 import com.example.musicplayer.api.SpotifyApi;
 import com.example.musicplayer.api.SpotifySearchResponse;
 import com.example.musicplayer.api.SpotifyTrack;
@@ -51,24 +58,36 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
     private static final String TAG = "MainActivity";
     private static final String API_BASE_URL = "http://192.168.30.28:5030/";
-    private static final long SEARCH_DELAY = 500; // 500ms delay for search
+    private static final long SEARCH_DELAY = 500;
 
-    // UI Components
+    // UI Components - Main
     private DrawerLayout drawerLayout;
     private NavigationView navigationView;
     private RecyclerView recyclerView;
     private EditText etSearchBar;
 
+    // Mini Player UI
+    private CardView miniPlayerCard;
+    private ImageView miniImgCover;
+    private TextView miniTxtTitle, miniTxtArtist;
+    private ImageButton miniBtnPlayPause, miniBtnNext, miniBtnClose;
+    private ProgressBar miniProgressBar;
+
     // Data
     private ArrayList<Song> songList;
-    private ArrayList<Song> allSongs; // To restore after search
+    private ArrayList<Song> allSongs;
     private MusicAdapter adapter;
     private SpotifyApi spotifyApi;
     private boolean isSearching = false;
 
     // Search handler
     private Handler searchHandler = new Handler(Looper.getMainLooper());
+    private Handler updateHandler = new Handler(Looper.getMainLooper());
     private Runnable searchRunnable;
+    private Runnable updateProgressRunnable;
+
+    // Player state
+    private boolean isPlayerActive = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,9 +101,145 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         setupSearchBar();
         setupTabs();
         setupChatbot();
+        setupMiniPlayer();
+        loadRecommendedSongs();
 
-        loadRecommendedSongs(); // Load initial songs
+        // Register broadcast receiver for player updates
+        registerPlayerReceiver();
     }
+
+    // ========== MINI PLAYER SETUP ==========
+
+    private void setupMiniPlayer() {
+        miniPlayerCard = findViewById(R.id.miniPlayerCard);
+        miniImgCover = findViewById(R.id.miniImgCover);
+        miniTxtTitle = findViewById(R.id.miniTxtTitle);
+        miniTxtArtist = findViewById(R.id.miniTxtArtist);
+        miniBtnPlayPause = findViewById(R.id.miniBtnPlayPause);
+        miniBtnNext = findViewById(R.id.miniBtnNext);
+        miniBtnClose = findViewById(R.id.miniBtnClose);
+        miniProgressBar = findViewById(R.id.miniProgressBar);
+
+        // Click mini player to open PlayerActivity
+        miniPlayerCard.setOnClickListener(v -> {
+            Intent intent = new Intent(this, PlayerActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(intent);
+        });
+
+        // Mini Play/Pause
+        miniBtnPlayPause.setOnClickListener(v -> {
+            sendBroadcastToPlayer("TOGGLE_PLAY_PAUSE");
+        });
+
+        // Mini Next
+        miniBtnNext.setOnClickListener(v -> {
+            sendBroadcastToPlayer("NEXT");
+        });
+
+        // Mini Close - Stop music and hide
+        miniBtnClose.setOnClickListener(v -> {
+            sendBroadcastToPlayer("STOP");
+            hideMiniPlayer();
+        });
+    }
+
+    private void showMiniPlayer(String title, String artist, String cover, boolean isPlaying) {
+        isPlayerActive = true;
+        miniPlayerCard.setVisibility(View.VISIBLE);
+
+        miniTxtTitle.setText(title);
+        miniTxtArtist.setText(artist);
+
+        // Load cover image
+        Glide.with(this)
+                .load(cover)
+                .placeholder(android.R.drawable.ic_menu_gallery)
+                .error(android.R.drawable.ic_menu_gallery)
+                .into(miniImgCover);
+
+        // Update play/pause button
+        int iconRes = isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play;
+        miniBtnPlayPause.setImageResource(iconRes);
+
+        // Animate entrance
+        miniPlayerCard.setAlpha(0f);
+        miniPlayerCard.setTranslationY(100f);
+        miniPlayerCard.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(300)
+                .start();
+    }
+
+    private void updateMiniPlayer(boolean isPlaying, int progress, int max) {
+        if (miniPlayerCard.getVisibility() == View.VISIBLE) {
+            int iconRes = isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play;
+            miniBtnPlayPause.setImageResource(iconRes);
+
+            if (max > 0) {
+                miniProgressBar.setMax(max);
+                miniProgressBar.setProgress(progress);
+            }
+        }
+    }
+
+    private void hideMiniPlayer() {
+        isPlayerActive = false;
+        miniPlayerCard.animate()
+                .alpha(0f)
+                .translationY(100f)
+                .setDuration(300)
+                .withEndAction(() -> miniPlayerCard.setVisibility(View.GONE))
+                .start();
+    }
+
+    // ========== BROADCAST COMMUNICATION WITH PLAYERACTIVITY ==========
+
+    private void sendBroadcastToPlayer(String action) {
+        Intent intent = new Intent("PLAYER_CONTROL");
+        intent.putExtra("action", action);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+    }
+
+    private BroadcastReceiver playerUpdateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getStringExtra("action");
+
+            if ("UPDATE_UI".equals(action)) {
+                String title = intent.getStringExtra("title");
+                String artist = intent.getStringExtra("artist");
+                String cover = intent.getStringExtra("cover");
+                boolean isPlaying = intent.getBooleanExtra("isPlaying", false);
+                int progress = intent.getIntExtra("progress", 0);
+                int max = intent.getIntExtra("max", 0);
+
+                if (title != null && artist != null) {
+                    showMiniPlayer(title, artist, cover, isPlaying);
+                    updateMiniPlayer(isPlaying, progress, max);
+                }
+            } else if ("PLAYER_STOPPED".equals(action)) {
+                hideMiniPlayer();
+            }
+        }
+    };
+
+    private void registerPlayerReceiver() {
+        IntentFilter filter = new IntentFilter("PLAYER_UPDATE");
+        LocalBroadcastManager.getInstance(this).registerReceiver(playerUpdateReceiver, filter);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(playerUpdateReceiver);
+        if (updateHandler != null) {
+            updateHandler.removeCallbacks(updateProgressRunnable);
+        }
+    }
+
+    // ========== EXISTING METHODS (unchanged) ==========
 
     private void setupRetrofit() {
         Retrofit retrofit = new Retrofit.Builder()
@@ -172,23 +327,32 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             public void onResponse(Call<SpotifyTrack> call, Response<SpotifyTrack> response) {
                 if (response.isSuccessful() && response.body() != null) {
                     SpotifyTrack track = response.body();
-                    // For simplicity, we play only the selected song
+
+                    // Create playlist from current song list
                     ArrayList<String> playlistTitles = new ArrayList<>();
                     ArrayList<String> playlistArtists = new ArrayList<>();
                     ArrayList<String> playlistCovers = new ArrayList<>();
                     ArrayList<String> playlistPreviews = new ArrayList<>();
 
-                    playlistTitles.add(track.name);
-                    playlistArtists.add(track.getArtistsString());
-                    playlistCovers.add(track.imageUrl);
-                    playlistPreviews.add(track.previewUrl);
+                    int clickedIndex = 0;
+                    for (int i = 0; i < songList.size(); i++) {
+                        Song song = songList.get(i);
+                        playlistTitles.add(song.title);
+                        playlistArtists.add(song.artist);
+                        playlistCovers.add(song.cover);
+                        playlistPreviews.add(song.audio);
+
+                        if (song.id.equals(trackId)) {
+                            clickedIndex = i;
+                        }
+                    }
 
                     Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
                     intent.putStringArrayListExtra("playlist_titles", playlistTitles);
                     intent.putStringArrayListExtra("playlist_artists", playlistArtists);
                     intent.putStringArrayListExtra("playlist_covers", playlistCovers);
                     intent.putStringArrayListExtra("playlist_previews", playlistPreviews);
-                    intent.putExtra("current_index", 0);
+                    intent.putExtra("current_index", clickedIndex);
                     startActivity(intent);
                 }
             }
@@ -209,8 +373,6 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         adapter.setOnItemClickListener(this);
         recyclerView.setAdapter(adapter);
     }
-
-    // --- Other setup methods are unchanged ---
 
     private void setupDrawer() {
         drawerLayout = findViewById(R.id.drawerLayout);
@@ -367,5 +529,12 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         } else {
             super.onBackPressed();
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Request update from PlayerActivity if it's running
+        sendBroadcastToPlayer("REQUEST_UPDATE");
     }
 }

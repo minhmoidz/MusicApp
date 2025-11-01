@@ -1,8 +1,9 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.kapt)
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.kapt'
 }
+
 
 android {
     namespace = "com.example.musicplayer"
@@ -60,6 +61,8 @@ dependencies {
 
     // CircleImageView
     implementation libs.circleimageview
+    implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.1.0'
+
 
     // Test
     testImplementation libs.junit
