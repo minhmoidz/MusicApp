@@ -8,13 +8,11 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <!-- Main Content -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="#0D0D0D">
 
-        <!-- Header với gradient -->
         <View
             android:id="@+id/headerOverlay"
             android:layout_width="0dp"
@@ -24,7 +22,6 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
-        <!-- Top Bar -->
         <LinearLayout
             android:id="@+id/topBar"
             android:layout_width="0dp"
@@ -58,6 +55,15 @@
                 android:textSize="20sp"
                 android:textStyle="bold" />
 
+            <ImageButton
+                android:id="@+id/btnQueue"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginEnd="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_sort_by_size"
+                android:contentDescription="Hàng chờ"
+                app:tint="#FFFFFF" />
             <ImageView
                 android:id="@+id/btnProfile"
                 android:layout_width="32dp"
@@ -66,7 +72,6 @@
                 android:background="@drawable/circle_background" />
         </LinearLayout>
 
-        <!-- Search Bar -->
         <androidx.cardview.widget.CardView
             android:id="@+id/searchCard"
             android:layout_width="0dp"
@@ -108,7 +113,6 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- Section Title -->
         <LinearLayout
             android:id="@+id/sectionTitle"
             android:layout_width="0dp"
@@ -142,7 +146,6 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Tab Layout -->
         <HorizontalScrollView
             android:id="@+id/tabScrollView"
             android:layout_width="0dp"
@@ -209,7 +212,6 @@
             </LinearLayout>
         </HorizontalScrollView>
 
-        <!-- RecyclerView -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recyclerView"
             android:layout_width="0dp"
@@ -224,7 +226,6 @@
             app:layout_constraintTop_toBottomOf="@id/tabScrollView"
             tools:listitem="@layout/item_song" />
 
-        <!-- Mini Player Bar (Fixed at bottom) -->
         <androidx.cardview.widget.CardView
             android:id="@+id/miniPlayerCard"
             android:layout_width="0dp"
@@ -246,7 +247,6 @@
                 android:paddingHorizontal="12dp"
                 android:background="?attr/selectableItemBackground">
 
-                <!-- Album Cover -->
                 <androidx.cardview.widget.CardView
                     android:layout_width="48dp"
                     android:layout_height="48dp"
@@ -261,7 +261,6 @@
                         android:src="@drawable/ic_launcher_background" />
                 </androidx.cardview.widget.CardView>
 
-                <!-- Song Info -->
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
@@ -292,7 +291,6 @@
                         android:ellipsize="end" />
                 </LinearLayout>
 
-                <!-- Play/Pause Button -->
                 <ImageButton
                     android:id="@+id/miniBtnPlayPause"
                     android:layout_width="40dp"
@@ -303,7 +301,6 @@
                     app:tint="#FFFFFF"
                     android:padding="8dp" />
 
-                <!-- Next Button -->
                 <ImageButton
                     android:id="@+id/miniBtnNext"
                     android:layout_width="40dp"
@@ -315,7 +312,6 @@
                     android:padding="8dp"
                     android:layout_marginStart="4dp" />
 
-                <!-- Close Button -->
                 <ImageButton
                     android:id="@+id/miniBtnClose"
                     android:layout_width="40dp"
@@ -328,7 +324,6 @@
                     android:layout_marginStart="4dp" />
             </LinearLayout>
 
-            <!-- Progress Bar at bottom -->
             <ProgressBar
                 android:id="@+id/miniProgressBar"
                 style="?android:attr/progressBarStyleHorizontal"
@@ -354,7 +349,6 @@
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <!-- Navigation Drawer -->
     <com.google.android.material.navigation.NavigationView
         android:id="@+id/navigationView"
         android:layout_width="280dp"

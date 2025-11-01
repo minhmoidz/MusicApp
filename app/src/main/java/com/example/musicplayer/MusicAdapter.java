@@ -1,4 +1,4 @@
-package com.example.musicplayer;
+package com.example.musicplayer; // (Giữ package của bạn)
 
 import android.content.Context;
 import android.view.LayoutInflater;
@@ -20,14 +20,30 @@ public class MusicAdapter extends RecyclerView.Adapter<MusicAdapter.ViewHolder> 
 
     private final Context context;
     private final List<Song> songs;
-    private OnItemClickListener listener;
 
+    // ----- THAY ĐỔI 1: Thêm 2 listener -----
+    private OnItemClickListener itemClickListener;
+    private OnOptionsClickListener optionsClickListener; // Listener mới cho nút 3 chấm
+
+    // --- Interface cũ của bạn ---
     public interface OnItemClickListener {
         void onItemClick(String trackId);
     }
 
+    // ----- THAY ĐỔI 2: Thêm interface mới -----
+    public interface OnOptionsClickListener {
+        // Gửi về cả bài hát VÀ view (nút 3 chấm) để PopupMenu biết neo vào đâu
+        void onOptionsClick(Song song, View anchorView);
+    }
+
+    // --- Setter cũ của bạn ---
     public void setOnItemClickListener(OnItemClickListener listener) {
-        this.listener = listener;
+        this.itemClickListener = listener;
+    }
+
+    // ----- THAY ĐỔI 3: Thêm setter cho listener mới -----
+    public void setOnOptionsClickListener(OnOptionsClickListener listener) {
+        this.optionsClickListener = listener;
     }
 
     public MusicAdapter(Context context, List<Song> songs) {
@@ -45,7 +61,25 @@ public class MusicAdapter extends RecyclerView.Adapter<MusicAdapter.ViewHolder> 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Song song = songs.get(position);
-        holder.bind(song, listener);
+
+        // ----- THAY ĐỔI 4: Tách logic bind và listener -----
+
+        // 1. Chỉ gọi bind để gán dữ liệu
+        holder.bind(song);
+
+        // 2. Gán listener trực tiếp ở đây
+        holder.itemView.setOnClickListener(v -> {
+            if (itemClickListener != null) {
+                itemClickListener.onItemClick(song.id);
+            }
+        });
+
+        // 3. Gán listener MỚI cho btnMore
+        holder.btnMore.setOnClickListener(v -> {
+            if (optionsClickListener != null) {
+                optionsClickListener.onOptionsClick(song, holder.btnMore);
+            }
+        });
     }
 
     @Override
@@ -69,7 +103,9 @@ public class MusicAdapter extends RecyclerView.Adapter<MusicAdapter.ViewHolder> 
             btnMore = itemView.findViewById(R.id.btnMore);
         }
 
-        public void bind(final Song song, final OnItemClickListener listener) {
+        // ----- THAY ĐỔI 5: Đơn giản hóa hàm bind -----
+        // (Bỏ tham số listener, vì đã xử lý ở onBindViewHolder)
+        public void bind(final Song song) {
             tvRank.setText(String.valueOf(getAdapterPosition() + 1));
             tvSongTitle.setText(song.title);
             tvArtist.setText(song.artist);
@@ -86,11 +122,7 @@ public class MusicAdapter extends RecyclerView.Adapter<MusicAdapter.ViewHolder> 
                     .apply(new RequestOptions().transform(new RoundedCorners(16)))
                     .into(ivAlbumCover);
 
-            itemView.setOnClickListener(v -> {
-                if (listener != null) {
-                    listener.onItemClick(song.id);
-                }
-            });
+            // Đã xóa itemView.setOnClickListener khỏi đây
         }
     }
 }

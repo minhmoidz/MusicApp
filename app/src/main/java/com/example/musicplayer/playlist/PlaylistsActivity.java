@@ -29,5 +29,6 @@ public class PlaylistsActivity extends AppCompatActivity {
 
         Toast.makeText(this, "Playlists feature coming soon!", Toast.LENGTH_SHORT).show();
     }
+
 }
 

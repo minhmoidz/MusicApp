@@ -21,7 +21,7 @@ public class FavoritesManager {
         void onFavoritesChanged();
     }
 
-    private FavoritesManager(Context context) {
+    public FavoritesManager(Context context) {
         prefs = context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         gson = new Gson();
         listeners = new HashSet<>();
