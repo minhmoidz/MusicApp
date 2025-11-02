@@ -5,6 +5,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
+import androidx.cardview.widget.CardView;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.musicplayer.R;
@@ -30,29 +31,52 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ViewHolder> {
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         ChatMessage msg = messages.get(position);
-        holder.roleView.setText(msg.getRole());
-        holder.contentView.setText(msg.getContent());
+        String role = msg.getRole().toLowerCase();
 
-        // style simple theo role
-        String role = msg.getRole();
-        if ("user".equalsIgnoreCase(role)) {
-            holder.roleView.setTextColor(holder.itemView.getResources().getColor(android.R.color.holo_blue_dark));
-        } else if ("assistant".equalsIgnoreCase(role)) {
-            holder.roleView.setTextColor(holder.itemView.getResources().getColor(android.R.color.holo_green_dark));
-        } else {
-            holder.roleView.setTextColor(holder.itemView.getResources().getColor(android.R.color.darker_gray));
+        // Ẩn tất cả
+        holder.userCard.setVisibility(View.GONE);
+        holder.botCard.setVisibility(View.GONE);
+        holder.systemCard.setVisibility(View.GONE);
+
+        // Hiển thị theo role
+        switch (role) {
+            case "user":
+                holder.userCard.setVisibility(View.VISIBLE);
+                holder.userContentView.setText(msg.getContent());
+                break;
+
+            case "assistant":
+            case "bot":
+                holder.botCard.setVisibility(View.VISIBLE);
+                holder.botContentView.setText(msg.getContent());
+                break;
+
+            case "system":
+                holder.systemCard.setVisibility(View.VISIBLE);
+                holder.systemContentView.setText(msg.getContent());
+                break;
         }
     }
 
     @Override
-    public int getItemCount() { return messages.size(); }
+    public int getItemCount() {
+        return messages.size();
+    }
 
     static class ViewHolder extends RecyclerView.ViewHolder {
-        TextView roleView, contentView;
+        CardView userCard, botCard, systemCard;
+        TextView userContentView, botContentView, systemContentView;
+
         ViewHolder(View itemView) {
             super(itemView);
-            roleView = itemView.findViewById(R.id.roleView);
-            contentView = itemView.findViewById(R.id.contentView);
+            userCard = itemView.findViewById(R.id.userCard);
+            userContentView = itemView.findViewById(R.id.userContentView);
+
+            botCard = itemView.findViewById(R.id.botCard);
+            botContentView = itemView.findViewById(R.id.botContentView);
+
+            systemCard = itemView.findViewById(R.id.systemCard);
+            systemContentView = itemView.findViewById(R.id.systemContentView);
         }
     }
 }
