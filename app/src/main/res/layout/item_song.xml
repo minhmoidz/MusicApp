@@ -101,6 +101,7 @@
                     android:src="@drawable/favorite_24px"
                     android:layout_height="16dp"
                     android:layout_width="16dp"
+                    app:tint="@android:color/holo_red_dark"
                 />
 
                 <TextView
@@ -117,6 +118,7 @@
                     android:layout_height="16dp"
                     android:layout_width="16dp"
                     android:layout_marginStart="12dp"
+                    app:tint="@color/theme"
                     />
 
                 <TextView

@@ -1,22 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="4dp">
 
-    <TextView
-        android:id="@+id/roleView"
+    <!-- User Message (Right) -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/userCard"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textStyle="bold"
-        android:text="role" />
+        android:layout_gravity="end"
+        android:layout_marginStart="60dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#1976D2"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="2dp">
 
-    <TextView
-        android:id="@+id/contentView"
-        android:layout_width="match_parent"
+        <TextView
+            android:id="@+id/userContentView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxWidth="260dp"
+            android:padding="12dp"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:text="User message" />
+    </androidx.cardview.widget.CardView>
+
+    <!-- Bot Message (Left) -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/botCard"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:paddingStart="8dp"
-        android:paddingTop="4dp"
-        android:text="content" />
-</LinearLayout>
+        android:layout_gravity="start"
+        android:layout_marginEnd="60dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#2C2C2C"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="2dp">
+
+        <TextView
+            android:id="@+id/botContentView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxWidth="260dp"
+            android:padding="12dp"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:text="Bot message" />
+    </androidx.cardview.widget.CardView>
+
+    <!-- System Message (Center) -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/systemCard"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:visibility="gone"
+        app:cardBackgroundColor="#FF5252"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="1dp">
+
+        <TextView
+            android:id="@+id/systemContentView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:text="System" />
+    </androidx.cardview.widget.CardView>
+
+</FrameLayout>

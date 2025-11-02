@@ -27,6 +27,7 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -35,6 +36,7 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
+import com.example.musicplayer.MainActivity;
 import com.example.musicplayer.R;
 import com.example.musicplayer.profile.FavoritesManager;
 
@@ -105,6 +107,8 @@ public class PlayerActivity extends AppCompatActivity {
         setupMediaPlayer();
         setupControls();
         registerControlReceiver();
+
+        setupBackPressHandler();
     }
 
     @Override
@@ -518,7 +522,14 @@ public class PlayerActivity extends AppCompatActivity {
             Toast.makeText(this, "⬇️ Tính năng tải xuống đang phát triển", Toast.LENGTH_SHORT).show();
         });
 
-        btnBack.setOnClickListener(v -> { moveTaskToBack(true); });
+        btnBack.setOnClickListener(v -> {
+            Intent intent = new Intent(PlayerActivity.this, MainActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(intent);
+            sendUpdateToMain();
+            // Animation slide xuống (tùy chọn)
+            overridePendingTransition(0, R.anim.slide_out_down);
+        });
 
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -836,6 +847,20 @@ public class PlayerActivity extends AppCompatActivity {
         finish(); // Đóng hẳn activity khi bấm close
     }
 
+    private void setupBackPressHandler() {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                // Quay về MainActivity nhưng KHÔNG finish PlayerActivity
+                Intent intent = new Intent(PlayerActivity.this, MainActivity.class);
+                intent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                startActivity(intent);
+                sendUpdateToMain();
+                // KHÔNG gọi finish() hoặc setEnabled(false)
+            }
+        });
+    }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -886,15 +911,7 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
-        // (Code giữ nguyên)
         sendUpdateToMain();
     }
 
-    @Override
-    public void onBackPressed() {
-        // (Code giữ nguyên - Thu nhỏ app)
-        super.onBackPressed();
-        sendUpdateToMain();
-        moveTaskToBack(true); // Dùng true để nó giống nút Home
-    }
 }

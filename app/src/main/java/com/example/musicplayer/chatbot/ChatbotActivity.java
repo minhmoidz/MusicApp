@@ -2,9 +2,14 @@ package com.example.musicplayer.chatbot;
 
 import android.os.Bundle;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
-import android.widget.Button;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -30,7 +35,6 @@ import okhttp3.Response;
 public class ChatbotActivity extends AppCompatActivity {
 
     private static final String TAG = "ChatbotActivity";
-    // Sử dụng IP của máy tính trong mạng LAN
     private static final String BASE_URL = "http://192.168.30.28:5030";
     private static final String API_GET_HISTORY_URL = BASE_URL + "/api/chatbot/stream";
     private static final String API_POST_MESSAGE_URL = BASE_URL + "/api/chatbot/chat";
@@ -40,43 +44,86 @@ public class ChatbotActivity extends AppCompatActivity {
     private final List<ChatMessage> messageList = new ArrayList<>();
     private final OkHttpClient client = new OkHttpClient();
     private EditText editTextMessage;
-    private Button buttonSend;
+    private ImageButton btnBackChatbot, buttonSend, btnClearChat;
+    private LinearLayout emptyState;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_chatbot);
 
+        initViews();
+        setupRecyclerView();
+        setupListeners();
+        updateEmptyState();
+    }
+
+    private void initViews() {
         recyclerView = findViewById(R.id.recyclerViewChat);
         editTextMessage = findViewById(R.id.editTextMessage);
         buttonSend = findViewById(R.id.buttonSend);
+        btnBackChatbot = findViewById(R.id.btnBackChatbot);
+        btnClearChat = findViewById(R.id.btnClearChat);
+        emptyState = findViewById(R.id.emptyState);
+    }
 
-        recyclerView.setLayoutManager(new LinearLayoutManager(this));
+    private void setupRecyclerView() {
+        LinearLayoutManager layoutManager = new LinearLayoutManager(this);
+        layoutManager.setStackFromEnd(true); // Messages start from bottom
+        recyclerView.setLayoutManager(layoutManager);
         adapter = new ChatAdapter(messageList);
         recyclerView.setAdapter(adapter);
+    }
 
-        buttonSend.setOnClickListener(v -> {
-            String messageText = editTextMessage.getText().toString().trim();
-            if (!messageText.isEmpty()) {
-                sendMessage(messageText);
+    private void setupListeners() {
+        // Send button
+        buttonSend.setOnClickListener(v -> sendMessageFromInput());
+
+        // Enter key to send
+        editTextMessage.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEND ||
+                    (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN)) {
+                sendMessageFromInput();
+                return true;
             }
+            return false;
         });
 
-        // Lấy lịch sử chat khi mở màn hình
-        // fetchMessagesFromApi(); // Tạm thời tắt để tập trung debug POST
+        // Back button
+        btnBackChatbot.setOnClickListener(v -> finish());
+
+        // Clear chat button
+        btnClearChat.setOnClickListener(v -> showClearChatDialog());
+    }
+
+    private void sendMessageFromInput() {
+        String messageText = editTextMessage.getText().toString().trim();
+        if (!messageText.isEmpty()) {
+            sendMessage(messageText);
+            editTextMessage.setText("");
+        }
     }
 
     private void sendMessage(String messageText) {
-        // 1. Thêm tin nhắn của người dùng vào UI
+        // Add user message to UI
         ChatMessage userMessage = new ChatMessage("user", messageText);
         runOnUiThread(() -> {
             messageList.add(userMessage);
             adapter.notifyItemInserted(messageList.size() - 1);
             recyclerView.scrollToPosition(messageList.size() - 1);
-            editTextMessage.setText("");
+            updateEmptyState();
         });
 
-        // 2. Gửi tin nhắn đến API
+        // Show typing indicator (optional)
+        ChatMessage typingMessage = new ChatMessage("assistant", "Typing...");
+        int typingPosition = messageList.size();
+        runOnUiThread(() -> {
+            messageList.add(typingMessage);
+            adapter.notifyItemInserted(messageList.size() - 1);
+            recyclerView.scrollToPosition(messageList.size() - 1);
+        });
+
+        // Send to API
         JSONObject jsonBody = new JSONObject();
         try {
             jsonBody.put("message", messageText);
@@ -85,7 +132,11 @@ public class ChatbotActivity extends AppCompatActivity {
             return;
         }
 
-        RequestBody body = RequestBody.create(jsonBody.toString(), MediaType.get("application/json; charset=utf-8"));
+        RequestBody body = RequestBody.create(
+                jsonBody.toString(),
+                MediaType.get("application/json; charset=utf-8")
+        );
+
         Request request = new Request.Builder()
                 .url(API_POST_MESSAGE_URL)
                 .post(body)
@@ -96,26 +147,51 @@ public class ChatbotActivity extends AppCompatActivity {
             public void onFailure(Call call, IOException e) {
                 Log.e(TAG, "API call failed: " + e.getMessage());
                 runOnUiThread(() -> {
-                    ChatMessage errorMessage = new ChatMessage("system", "Error: Could not connect to the server.");
+                    // Remove typing indicator
+                    if (typingPosition < messageList.size()) {
+                        messageList.remove(typingPosition);
+                        adapter.notifyItemRemoved(typingPosition);
+                    }
+
+                    // Add error message
+                    ChatMessage errorMessage = new ChatMessage(
+                            "system",
+                            "⚠️ Could not connect to server. Please check your connection."
+                    );
                     messageList.add(errorMessage);
                     adapter.notifyItemInserted(messageList.size() - 1);
+                    recyclerView.scrollToPosition(messageList.size() - 1);
                 });
             }
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 String responseBody = response.body() != null ? response.body().string() : "";
-                // DÒNG LOG QUAN TRỌNG ĐỂ DEBUG
                 Log.d(TAG, "Server Response: " + responseBody);
+
+                runOnUiThread(() -> {
+                    // Remove typing indicator
+                    if (typingPosition < messageList.size()) {
+                        messageList.remove(typingPosition);
+                        adapter.notifyItemRemoved(typingPosition);
+                    }
+                });
 
                 if (!response.isSuccessful()) {
                     Log.e(TAG, "Unexpected code " + response);
+                    runOnUiThread(() -> {
+                        ChatMessage errorMessage = new ChatMessage(
+                                "system",
+                                "Server error: " + response.code()
+                        );
+                        messageList.add(errorMessage);
+                        adapter.notifyItemInserted(messageList.size() - 1);
+                    });
                     return;
                 }
 
                 try {
                     JSONObject responseObject = new JSONObject(responseBody);
-                    // Lấy text từ trường "reply", nếu không có thì dùng giá trị mặc định
                     String replyText = responseObject.optString("response", "Sorry, I don't understand.");
 
                     ChatMessage botMessage = new ChatMessage("assistant", replyText);
@@ -129,6 +205,29 @@ public class ChatbotActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    private void showClearChatDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("Làm mới đoạn chat")
+                .setMessage("Bạn có chắc muốn làm mới đoạn chat")
+                .setPositiveButton("Làm mới", (dialog, which) -> {
+                    messageList.clear();
+                    adapter.notifyDataSetChanged();
+                    updateEmptyState();
+                })
+                .setNegativeButton("Hủy bỏ", null)
+                .show();
+    }
+
+    private void updateEmptyState() {
+        if (messageList.isEmpty()) {
+            emptyState.setVisibility(View.VISIBLE);
+            recyclerView.setVisibility(View.GONE);
+        } else {
+            emptyState.setVisibility(View.GONE);
+            recyclerView.setVisibility(View.VISIBLE);
+        }
     }
 
     private void fetchMessagesFromApi() {
@@ -170,6 +269,7 @@ public class ChatbotActivity extends AppCompatActivity {
                         messageList.clear();
                         messageList.addAll(parsed);
                         adapter.notifyDataSetChanged();
+                        updateEmptyState();
                         if (!messageList.isEmpty()) {
                             recyclerView.scrollToPosition(messageList.size() - 1);
                         }

@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -28,7 +29,9 @@ import java.util.List;
 public class LibraryActivity extends AppCompatActivity {
 
     private RecyclerView recyclerView;
-    private TextView tabSongs, tabAlbums, tabArtists, tabFavorites, btnBack;
+    private TextView tabSongs, tabAlbums, tabArtists, tabFavorites;
+
+    private ImageButton btnBackLibrary;
     private EditText searchBox;
     private LibraryAdapter adapter;
     private RequestQueue requestQueue;
@@ -66,7 +69,7 @@ public class LibraryActivity extends AppCompatActivity {
         tabAlbums = findViewById(R.id.tabAlbums);
         tabArtists = findViewById(R.id.tabArtists); // sẽ là null nếu layout không có
         tabFavorites = findViewById(R.id.tabFavorites);
-        btnBack = findViewById(R.id.btnBack);
+        btnBackLibrary = findViewById(R.id.btnBackLibrary);
         searchBox = findViewById(R.id.searchBox);
     }
 
@@ -177,7 +180,7 @@ public class LibraryActivity extends AppCompatActivity {
     }
 
     private void setupBackButton() {
-        btnBack.setOnClickListener(v -> finish());
+        btnBackLibrary.setOnClickListener(v -> finish());
     }
 
     private void setupSearch() {

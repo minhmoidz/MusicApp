@@ -20,15 +20,17 @@
             android:gravity="center_vertical"
             android:layout_marginBottom="24dp">
 
-            <TextView
-                android:id="@+id/btnBack"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:text="←"
-                android:textColor="#FFFFFF"
-                android:textSize="24sp"
+            <ImageButton
+                android:id="@+id/btnBackProfile"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_alignParentStart="true"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
                 android:gravity="center"
-                android:background="?attr/selectableItemBackgroundBorderless" />
+                android:src="@drawable/arrow_back_24px"
+                app:tint="#FFFFFF" />
 
             <TextView
                 android:id="@+id/tvTitle"
@@ -57,12 +59,11 @@
                 app:cardElevation="8dp"
                 app:cardBackgroundColor="#2A2A2A">
 
-                <TextView
+                <ImageView
                     android:id="@+id/tvAvatar"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:text="👤"
-                    android:textSize="60sp"
+                    android:src="@drawable/ic_person"
                     android:gravity="center" />
             </androidx.cardview.widget.CardView>
 
@@ -113,7 +114,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="1,234"
-                        android:textColor="#9B4DCA"
+                        android:textColor="@color/theme"
                         android:textSize="24sp"
                         android:textStyle="bold" />
 
@@ -147,7 +148,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="89"
-                        android:textColor="#9B4DCA"
+                        android:textColor="@color/theme"
                         android:textSize="24sp"
                         android:textStyle="bold" />
 
@@ -186,13 +187,6 @@
                     android:background="?attr/selectableItemBackground">
 
                     <TextView
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:text="✏️"
-                        android:textSize="20sp"
-                        android:gravity="center" />
-
-                    <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -226,13 +220,6 @@
                     android:background="?attr/selectableItemBackground">
 
                     <TextView
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:text="🔒"
-                        android:textSize="20sp"
-                        android:gravity="center" />
-
-                    <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -247,6 +234,98 @@
                         android:text="›"
                         android:textColor="#AAAAAA"
                         android:textSize="20sp" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="#2A2A2A"
+                    android:layout_marginHorizontal="16dp" />
+
+                <LinearLayout
+                    android:id="@+id/btnSetting"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:padding="16dp"
+                    android:gravity="center_vertical"
+                    android:background="?attr/selectableItemBackground">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Cài đặt"
+                        android:textColor="#FFFFFF"
+                        android:textSize="16sp"
+                        android:layout_marginStart="16dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="›"
+                        android:textColor="#AAAAAA"
+                        android:textSize="20sp" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="#2A2A2A"
+                    android:layout_marginHorizontal="16dp" />
+
+                <LinearLayout
+                    android:id="@+id/btnAbout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:padding="16dp"
+                    android:gravity="center_vertical"
+                    android:background="?attr/selectableItemBackground">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Giới thiệu ứng dụng"
+                        android:textColor="#FFFFFF"
+                        android:textSize="16sp"
+                        android:layout_marginStart="16dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="›"
+                        android:textColor="#AAAAAA"
+                        android:textSize="20sp" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="#2A2A2A"
+                    android:layout_marginHorizontal="16dp" />
+
+                <LinearLayout
+                    android:id="@+id/btnLogout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:padding="16dp"
+                    android:gravity="center_vertical"
+                    android:background="?attr/selectableItemBackground">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Đăng xuất"
+                        android:textColor="#FFFFFF"
+                        android:textSize="16sp"
+                        android:layout_marginStart="16dp" />
+
                 </LinearLayout>
             </LinearLayout>
         </androidx.cardview.widget.CardView>

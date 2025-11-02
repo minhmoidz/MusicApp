@@ -117,12 +117,4 @@
             app:tint="#ff6b6b" />
     </RelativeLayout>
 
-    <!-- Gradient Border (Optional decoration) -->
-    <View
-        android:layout_width="4dp"
-        android:layout_height="match_parent"
-        android:background="@android:drawable/dialog_holo_light_frame"
-        android:backgroundTint="#ff6b6b"
-        android:alpha="0.8" />
-
 </androidx.cardview.widget.CardView>
