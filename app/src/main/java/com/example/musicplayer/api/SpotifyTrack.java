@@ -1,4 +1,3 @@
-
 package com.example.musicplayer.api;
 
 import com.google.gson.annotations.SerializedName;
@@ -17,8 +16,17 @@ public class SpotifyTrack {
     @SerializedName("album")
     public String album;
 
+    @SerializedName("duration_ms")
+    public int durationMs;
+
+    @SerializedName("popularity")
+    public int popularity; // ADDED
+
     @SerializedName("preview_url")
     public String previewUrl;
+
+    @SerializedName("spotify_url")
+    public String spotifyUrl; // ADDED
 
     @SerializedName("image_url")
     public String imageUrl;

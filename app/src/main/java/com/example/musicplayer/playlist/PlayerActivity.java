@@ -1,6 +1,7 @@
 package com.example.musicplayer.playlist;
 
 import android.animation.ValueAnimator;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
@@ -23,14 +24,21 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+//import androidx.palette.graphics.Palette;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.example.musicplayer.R;
+import com.example.musicplayer.api.HistoryRecordRequest;
+import com.example.musicplayer.api.SpotifyApi;
+import com.example.musicplayer.login.LoginActivity;
+import com.example.musicplayer.utils.HistoryManager;
 
 import org.json.JSONObject;
+import com.google.gson.Gson;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -38,6 +46,13 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
+
+import okhttp3.OkHttpClient;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+import retrofit2.Retrofit;
+import retrofit2.converter.gson.GsonConverterFactory;
 
 public class PlayerActivity extends AppCompatActivity {
 
@@ -62,30 +77,130 @@ public class PlayerActivity extends AppCompatActivity {
 
     private int dominantColor = Color.parseColor("#1DB954");
 
+    private SpotifyApi spotifyApi;
+    private LoginActivity.SessionManager sessionManager;
+    private HistoryManager historyManager;
+
+    // Track playback time for accurate history recording
+    private long songStartTime = 0;
+    private String currentPlayingTrackId = null; // Track currently playing song
+
     public static class Song {
+        String id;
         String title;
         String artist;
         String cover;
         String preview;
+        int durationMs;
 
-        public Song(String title, String artist, String cover, String preview) {
+        public Song(String id, String title, String artist, String cover, String preview, int durationMs) {
+            this.id = id;
             this.title = title;
             this.artist = artist;
             this.cover = cover;
             this.preview = preview;
+            this.durationMs = durationMs;
         }
     }
+
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Log.d(TAG, "🚀 PlayerActivity onCreate() started");
         setContentView(R.layout.activity_player);
+
+        // ADDED: Init SessionManager and Retrofit
+        Log.d(TAG, "📋 Initializing SessionManager...");
+        sessionManager = new LoginActivity.SessionManager(this);
+
+        // ADDED: Init HistoryManager
+        Log.d(TAG, "📋 Initializing HistoryManager...");
+        historyManager = new HistoryManager(this);
+        Log.d(TAG, "✅ HistoryManager initialized. History tracking enabled: " + historyManager.isHistoryEnabled());
+
+        // Check token validity immediately
+        if (!sessionManager.isTokenValid()) {
+            Log.e(TAG, "❌ Token is invalid or expired! Redirecting to login...");
+            Toast.makeText(this, "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại", Toast.LENGTH_LONG).show();
+            redirectToLogin();
+            return;
+        }
+
+        String validToken = sessionManager.getValidAccessToken();
+        if (validToken != null) {
+            Log.d(TAG, "✅ Valid token found. Remaining time: " + sessionManager.getRemainingTimeSeconds() + " seconds");
+        } else {
+            Log.e(TAG, "❌ Could not get valid token! Redirecting to login...");
+            redirectToLogin();
+            return;
+        }
+
+        setupRetrofit();
 
         initViews();
         loadPlaylistData();
         loadCurrentSong();
         setupMediaPlayer();
         setupControls();
+
+        Log.d(TAG, "✅ PlayerActivity onCreate() completed");
+    }
+
+    private void redirectToLogin() {
+        sessionManager.clear();
+        Intent intent = new Intent(this, LoginActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(intent);
+        finish();
+    }
+
+
+    private void setupRetrofit() {
+        Log.d(TAG, "🔧 Setting up Retrofit and OkHttpClient...");
+
+        OkHttpClient okHttpClient = new OkHttpClient.Builder()
+                .addInterceptor(chain -> {
+                    // Use getValidAccessToken() to ensure we only use valid tokens
+                    String token = sessionManager.getValidAccessToken();
+                    okhttp3.Request.Builder builder = chain.request().newBuilder();
+
+                    if (token != null && !token.isEmpty()) {
+                        builder.header("Authorization", "Bearer " + token);
+                        Log.d(TAG, "🔑 Adding Authorization header to request: " + chain.request().url());
+                    } else {
+                        Log.e(TAG, "❌ No valid token available for request: " + chain.request().url());
+                        Log.e(TAG, "❌ This request will likely fail with 401 Unauthorized");
+                    }
+
+                    okhttp3.Request request = builder.build();
+                    Log.d(TAG, "📡 Request: " + request.method() + " " + request.url());
+
+                    okhttp3.Response response = chain.proceed(request);
+                    Log.d(TAG, "📥 Response: " + response.code() + " for " + request.url());
+
+                    // Handle 401 Unauthorized - token may have expired during app usage
+                    if (response.code() == 401) {
+                        Log.e(TAG, "🔴 401 Unauthorized! Token may be expired or invalid.");
+                        runOnUiThread(() -> {
+                            Toast.makeText(PlayerActivity.this, "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại", Toast.LENGTH_LONG).show();
+                            redirectToLogin();
+                        });
+                    }
+
+                    return response;
+                })
+                .build();
+
+        Retrofit retrofit = new Retrofit.Builder()
+                .baseUrl("http://192.168.30.28:5030/")
+                .client(okHttpClient)
+                .addConverterFactory(GsonConverterFactory.create())
+                .build();
+        spotifyApi = retrofit.create(SpotifyApi.class);
+
+        Log.d(TAG, "✅ Retrofit setup complete. spotifyApi initialized: " + (spotifyApi != null));
     }
 
     private void initViews() {
@@ -109,27 +224,22 @@ public class PlayerActivity extends AppCompatActivity {
         gradientOverlay = findViewById(R.id.gradientOverlay);
     }
 
+    // UPDATED: To receive full data for history
+    // UPDATED: To receive full data for history
     private void loadPlaylistData() {
         playlist = new ArrayList<>();
-
-        String title = getIntent().getStringExtra("title");
-        String artist = getIntent().getStringExtra("artist");
-        String cover = getIntent().getStringExtra("cover");
-        String preview = getIntent().getStringExtra("preview");
-
         ArrayList<String> titles = getIntent().getStringArrayListExtra("playlist_titles");
         ArrayList<String> artists = getIntent().getStringArrayListExtra("playlist_artists");
         ArrayList<String> covers = getIntent().getStringArrayListExtra("playlist_covers");
         ArrayList<String> previews = getIntent().getStringArrayListExtra("playlist_previews");
+        ArrayList<String> ids = getIntent().getStringArrayListExtra("playlist_ids");
+        ArrayList<Integer> durations = getIntent().getIntegerArrayListExtra("playlist_durations");
         currentSongIndex = getIntent().getIntExtra("current_index", 0);
 
-        if (titles != null && artists != null && covers != null && previews != null) {
+        if (titles != null && ids != null) {
             for (int i = 0; i < titles.size(); i++) {
-                playlist.add(new Song(titles.get(i), artists.get(i), covers.get(i), previews.get(i)));
+                playlist.add(new Song(ids.get(i), titles.get(i), artists.get(i), covers.get(i), previews.get(i), durations.get(i)));
             }
-        } else {
-            playlist.add(new Song(title, artist, cover, preview));
-            currentSongIndex = 0;
         }
 
         Log.d(TAG, "Playlist loaded: " + playlist.size() + " songs");
@@ -165,7 +275,7 @@ public class PlayerActivity extends AppCompatActivity {
                     .circleCrop()
                     .into(new CustomTarget<Bitmap>() {
                         @Override
-                        public void onResourceReady(Bitmap bitmap, Transition<? super Bitmap> transition) {
+                        public void onResourceReady(@NonNull Bitmap bitmap, Transition<? super Bitmap> transition) {
                             imgCover.setImageBitmap(bitmap);
 
                             // Extract dominant color from bitmap
@@ -316,7 +426,8 @@ public class PlayerActivity extends AppCompatActivity {
         Log.d(TAG, "Setup MediaPlayer: " + preview);
 
         if (preview == null || preview.isEmpty()) {
-            Toast.makeText(this, "Không có URL nhạc!", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Không có URL nhạc! Đang chuyển bài...", Toast.LENGTH_SHORT).show();
+            handleSongCompletion(); // Auto skip to next song
             return;
         }
 
@@ -346,6 +457,11 @@ public class PlayerActivity extends AppCompatActivity {
                 mp.start();
                 isPlaying = true;
                 btnPlayPause.setImageResource(android.R.drawable.ic_media_pause);
+                
+                // Track song start time for accurate play duration
+                songStartTime = System.currentTimeMillis();
+                currentPlayingTrackId = song.id; // Track current song
+                Log.d(TAG, "⏱️ Song playback started: " + song.title + " at: " + songStartTime);
 
                 // Scale animation for play button
                 btnPlayPause.setScaleX(0.8f);
@@ -365,7 +481,12 @@ public class PlayerActivity extends AppCompatActivity {
             });
 
             mediaPlayer.setOnCompletionListener(mp -> {
-                Log.d(TAG, "Song completed");
+`                Log.d(TAG, "Song completed");
+                // Save history when song completes
+                saveHistoryOnComplete(song);
+                // Reset tracking after save
+                songStartTime = 0;
+                currentPlayingTrackId = null;
                 handleSongCompletion();
             });
 
@@ -377,306 +498,468 @@ public class PlayerActivity extends AppCompatActivity {
         }
     }
 
-    private void handleSongCompletion() {
-        if (repeatMode == 2) {
-            playCurrentSong();
-        } else if (repeatMode == 1 || currentSongIndex < playlist.size() - 1) {
-            playNext();
-        } else {
-            isPlaying = false;
-            btnPlayPause.setImageResource(android.R.drawable.ic_media_play);
-            stopDiscAnimation();
-            seekBar.setProgress(0);
-            txtCurrentTime.setText("00:00");
-        }
-    }
-
-    private void setupControls() {
-        // Play/Pause
-        btnPlayPause.setOnClickListener(v -> {
-            if (mediaPlayer == null) return;
-
-            try {
-                if (isPlaying) {
-                    mediaPlayer.pause();
-                    stopDiscAnimation();
-                    btnPlayPause.setImageResource(android.R.drawable.ic_media_play);
-                } else {
-                    mediaPlayer.start();
-                    startDiscAnimation();
-                    btnPlayPause.setImageResource(android.R.drawable.ic_media_pause);
-                }
-
-                // Pulse animation
-                btnPlayPause.animate()
-                        .scaleX(0.85f).scaleY(0.85f)
-                        .setDuration(100)
-                        .withEndAction(() ->
-                                btnPlayPause.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
-                        ).start();
-
-                isPlaying = !isPlaying;
-            } catch (Exception e) {
-                Log.e(TAG, "Error: " + e.getMessage());
-            }
-        });
-
-        // Next button
-        btnNext.setOnClickListener(v -> {
-            animateButton(v);
-            playNext();
-        });
-
-        // Previous button
-        btnPrevious.setOnClickListener(v -> {
-            animateButton(v);
-            playPrevious();
-        });
-
-        // Shuffle button
-        btnShuffle.setOnClickListener(v -> {
-            isShuffle = !isShuffle;
-            animateButton(v);
-
-            if (isShuffle) {
-                btnShuffle.setColorFilter(dominantColor);
-                Toast.makeText(this, "🔀 Phát ngẫu nhiên", Toast.LENGTH_SHORT).show();
-            } else {
-                btnShuffle.setColorFilter(Color.WHITE);
-                Toast.makeText(this, "▶ Phát tuần tự", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        // Repeat button
-        btnRepeat.setOnClickListener(v -> {
-            repeatMode = (repeatMode + 1) % 3;
-            animateButton(v);
-            updateRepeatButton();
-        });
-
-        // Like button
-        btnLike.setOnClickListener(v -> {
-            isLiked = !isLiked;
-            animateButton(v);
-
-            if (isLiked) {
-                btnLike.setImageResource(android.R.drawable.btn_star_big_on);
-                btnLike.setColorFilter(Color.RED);
-                Toast.makeText(this, "❤️ Đã thêm vào yêu thích", Toast.LENGTH_SHORT).show();
-            } else {
-                btnLike.setImageResource(android.R.drawable.btn_star_big_off);
-                btnLike.setColorFilter(Color.WHITE);
-                Toast.makeText(this, "🤍 Đã bỏ yêu thích", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        // Download button
-        btnDownload.setOnClickListener(v -> {
-            animateButton(v);
-            Toast.makeText(this, "⬇️ Tính năng tải xuống đang phát triển", Toast.LENGTH_SHORT).show();
-        });
-
-        // Back button
-        btnBack.setOnClickListener(v -> finish());
-
-        // SeekBar
-        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                if (fromUser && mediaPlayer != null) {
-                    try {
-                        mediaPlayer.seekTo(progress);
-                        txtCurrentTime.setText(formatTime(progress));
-                    } catch (Exception e) {
-                        Log.e(TAG, "Seek error: " + e.getMessage());
-                    }
-                }
-            }
-            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
-            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
-        });
-    }
-
-    private void animateButton(View view) {
-        view.animate()
-                .scaleX(0.8f).scaleY(0.8f)
-                .setDuration(100)
-                .withEndAction(() ->
-                        view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
-                ).start();
-    }
-
-    private void playNext() {
-        if (playlist.size() <= 1) {
-            Toast.makeText(this, "Không có bài tiếp theo", Toast.LENGTH_SHORT).show();
+    /**
+     * Lưu lịch sử khi bài hát kết thúc hoặc chuyển bài
+     * Tính toán thời gian phát thực tế
+     * ⭐ Sử dụng auto-save API (recommended)
+     */
+    private void saveHistoryOnComplete(Song song) {
+        if (song == null || song.id == null || song.id.isEmpty()) {
+            Log.w(TAG, "⚠️ Cannot save history, invalid song data");
             return;
         }
+
+        // Check if spotifyApi and historyManager are initialized
+        if (spotifyApi == null || historyManager == null) {
+            Log.e(TAG, "❌ API or HistoryManager not initialized");
+            return;
+        }
+
+        // Check token validity
+        String validToken = sessionManager.getValidAccessToken();
+        if (validToken == null) {
+            Log.w(TAG, "⚠️ No valid token, cannot save history");
+            return;
+        }
+
+        // Calculate actual play duration
+        if (songStartTime <= 0) {
+            Log.w(TAG, "⚠️ No start time, skip saving");
+            return;
+        }
+        
+        long actualPlayTimeMs = System.currentTimeMillis() - songStartTime;
+        final int playDurationSeconds = (int) (actualPlayTimeMs / 1000);
+        Log.d(TAG, "⏱️ Actual play duration: " + playDurationSeconds + " seconds for: " + song.title);
+
+        // Store song ID for duplicate check but DON'T clear yet
+        final String trackIdToSave = song.id;
+        
+        // Skip if this exact song was just saved (check against last saved, not current playing)
+        if (currentPlayingTrackId != null && !currentPlayingTrackId.equals(trackIdToSave)) {
+            Log.d(TAG, "⏭️ Skip saving, different song is now playing");
+            return;
+        }
+
+        Log.d(TAG, "💾 Attempting to save history for: " + song.title + " (ID: " + trackIdToSave + ")");
+
+        // ⭐ Use auto-save API (recommended) - backend automatically fetches track info from Spotify
+        historyManager.saveHistoryAutoSave(
+                spotifyApi,
+                trackIdToSave,
+                playDurationSeconds,
+                new HistoryManager.HistorySaveCallback() {
+                    @Override
+                    public void onSuccess() {
+                        Log.d(TAG, "✅ History auto-saved successfully for: " + song.title);
+                    }
+
+                    @Override
+                    public void onError(int code, String message) {
+                        Log.e(TAG, "❌ Failed to auto-save history: " + code + " - " + message);
+                        
+                        // If auto-save fails, try manual fallback with full data
+                        if (code != 401) { // Don't retry if token expired
+                            saveHistoryManualFallback(song, playDurationSeconds);
+                        } else {
+                            runOnUiThread(() -> {
+                                Toast.makeText(PlayerActivity.this,
+                                        "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại",
+                                        Toast.LENGTH_LONG).show();
+                                redirectToLogin();
+                            });
+                        }
+                    }
+
+                    @Override
+                    public void onSkipped(String reason) {
+                        Log.d(TAG, "⏭️ History save skipped: " + reason);
+                    }
+                }
+        );
+    }
+    
+    private void saveHistoryManualFallback(Song song, int playDurationSeconds) {
+        String trackName = song.title != null ? song.title : "Unknown";
+        String artistName = song.artist != null ? song.artist : "Unknown";
+        String album = "Unknown";
+        int durationMs = song.durationMs > 0 ? song.durationMs : 30000;
+
+        Log.d(TAG, "🔄 Trying manual fallback for: " + trackName);
+
+        historyManager.saveHistory(
+                spotifyApi,
+                song.id,
+                trackName,
+                artistName,
+                album,
+                durationMs,
+                playDurationSeconds,
+                new HistoryManager.HistorySaveCallback() {
+                    @Override
+                    public void onSuccess() {
+                        Log.d(TAG, "✅ History saved via manual fallback");
+                    }
+
+                    @Override
+                    public void onError(int code, String message) {
+                        Log.e(TAG, "❌ Manual fallback also failed: " + code + " - " + message);
+                    }
+
+                    @Override
+                    public void onSkipped(String reason) {
+                        Log.d(TAG, "⏭️ Manual fallback skipped: " + reason);
+                    }
+                }
+        );
+    }
+
+    private void handleSongCompletion() {
+    if (repeatMode == 2) {
+        playCurrentSong();
+    } else if (repeatMode == 1 || currentSongIndex < playlist.size() - 1) {
+        playNext();
+    } else {
+        isPlaying = false;
+        btnPlayPause.setImageResource(android.R.drawable.ic_media_play);
+        stopDiscAnimation();
+        seekBar.setProgress(0);
+        txtCurrentTime.setText("00:00");
+    }
+}
+
+private void setupControls() {
+    // Play/Pause
+    btnPlayPause.setOnClickListener(v -> {
+        if (mediaPlayer == null) return;
+
+        try {
+            if (isPlaying) {
+                mediaPlayer.pause();
+                stopDiscAnimation();
+                btnPlayPause.setImageResource(android.R.drawable.ic_media_play);
+            } else {
+                mediaPlayer.start();
+                startDiscAnimation();
+                btnPlayPause.setImageResource(android.R.drawable.ic_media_pause);
+            }
+
+            // Pulse animation
+            btnPlayPause.animate()
+                    .scaleX(0.85f).scaleY(0.85f)
+                    .setDuration(100)
+                    .withEndAction(() ->
+                            btnPlayPause.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                    ).start();
+
+            isPlaying = !isPlaying;
+        } catch (Exception e) {
+            Log.e(TAG, "Error: " + e.getMessage());
+        }
+    });
+
+    // Next button
+    btnNext.setOnClickListener(v -> {
+        animateButton(v);
+        playNext();
+    });
+
+    // Previous button
+    btnPrevious.setOnClickListener(v -> {
+        animateButton(v);
+        playPrevious();
+    });
+
+    // Shuffle button
+    btnShuffle.setOnClickListener(v -> {
+        isShuffle = !isShuffle;
+        animateButton(v);
 
         if (isShuffle) {
-            int randomIndex;
-            do {
-                randomIndex = (int) (Math.random() * playlist.size());
-            } while (randomIndex == currentSongIndex && playlist.size() > 1);
-            currentSongIndex = randomIndex;
+            btnShuffle.setColorFilter(dominantColor);
+            Toast.makeText(this, "🔀 Phát ngẫu nhiên", Toast.LENGTH_SHORT).show();
         } else {
-            currentSongIndex = (currentSongIndex + 1) % playlist.size();
+            btnShuffle.setColorFilter(Color.WHITE);
+            Toast.makeText(this, "▶ Phát tuần tự", Toast.LENGTH_SHORT).show();
         }
+    });
 
-        // Slide out animation
-        imgCover.animate().alpha(0f).setDuration(200).withEndAction(() -> {
-            loadCurrentSong();
-            setupMediaPlayer();
-            imgCover.animate().alpha(1f).setDuration(300).start();
-        }).start();
+    // Repeat button
+    btnRepeat.setOnClickListener(v -> {
+        repeatMode = (repeatMode + 1) % 3;
+        animateButton(v);
+        updateRepeatButton();
+    });
+
+    // Like button
+    btnLike.setOnClickListener(v -> {
+        isLiked = !isLiked;
+        animateButton(v);
+
+        if (isLiked) {
+            btnLike.setImageResource(android.R.drawable.btn_star_big_on);
+            btnLike.setColorFilter(Color.RED);
+            Toast.makeText(this, "❤️ Đã thêm vào yêu thích", Toast.LENGTH_SHORT).show();
+        } else {
+            btnLike.setImageResource(android.R.drawable.btn_star_big_off);
+            btnLike.setColorFilter(Color.WHITE);
+            Toast.makeText(this, "🤍 Đã bỏ yêu thích", Toast.LENGTH_SHORT).show();
+        }
+    });
+
+    // Download button
+    btnDownload.setOnClickListener(v -> {
+        animateButton(v);
+        Toast.makeText(this, "⬇️ Tính năng tải xuống đang phát triển", Toast.LENGTH_SHORT).show();
+    });
+
+    // Back button
+    btnBack.setOnClickListener(v -> finish());
+
+    // SeekBar
+    seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        @Override
+        public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+            if (fromUser && mediaPlayer != null) {
+                try {
+                    mediaPlayer.seekTo(progress);
+                    txtCurrentTime.setText(formatTime(progress));
+                } catch (Exception e) {
+                    Log.e(TAG, "Seek error: " + e.getMessage());
+                }
+            }
+        }
+        @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+        @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+    });
+}
+
+private void animateButton(View view) {
+    view.animate()
+            .scaleX(0.8f).scaleY(0.8f)
+            .setDuration(100)
+            .withEndAction(() ->
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+            ).start();
+}
+
+private void playNext() {
+    if (playlist.size() <= 1) {
+        Toast.makeText(this, "Không có bài tiếp theo", Toast.LENGTH_SHORT).show();
+        return;
     }
 
-    private void playPrevious() {
-        if (playlist.size() <= 1) {
-            Toast.makeText(this, "Không có bài trước", Toast.LENGTH_SHORT).show();
-            return;
-        }
+    // Save history for current song before switching
+    Song currentSong = playlist.get(currentSongIndex);
+    saveHistoryOnComplete(currentSong);
+    
+    // Reset tracking for next song
+    songStartTime = 0;
+    currentPlayingTrackId = null;
 
-        if (mediaPlayer != null && mediaPlayer.getCurrentPosition() > 3000) {
-            mediaPlayer.seekTo(0);
-            return;
-        }
-
-        currentSongIndex = (currentSongIndex - 1 + playlist.size()) % playlist.size();
-
-        imgCover.animate().alpha(0f).setDuration(200).withEndAction(() -> {
-            loadCurrentSong();
-            setupMediaPlayer();
-            imgCover.animate().alpha(1f).setDuration(300).start();
-        }).start();
+    if (isShuffle) {
+        int randomIndex;
+        do {
+            randomIndex = (int) (Math.random() * playlist.size());
+        } while (randomIndex == currentSongIndex && playlist.size() > 1);
+        currentSongIndex = randomIndex;
+    } else {
+        currentSongIndex = (currentSongIndex + 1) % playlist.size();
     }
 
-    private void playCurrentSong() {
+    // Slide out animation
+    imgCover.animate().alpha(0f).setDuration(200).withEndAction(() -> {
         loadCurrentSong();
         setupMediaPlayer();
+        imgCover.animate().alpha(1f).setDuration(300).start();
+    }).start();
+}
+
+private void playPrevious() {
+    if (playlist.size() <= 1) {
+        Toast.makeText(this, "Không có bài trước", Toast.LENGTH_SHORT).show();
+        return;
     }
 
-    private void updateRepeatButton() {
-        switch (repeatMode) {
-            case 0:
-                btnRepeat.setColorFilter(Color.WHITE);
-                Toast.makeText(this, "🔁 Tắt lặp lại", Toast.LENGTH_SHORT).show();
-                break;
-            case 1:
-                btnRepeat.setColorFilter(dominantColor);
-                Toast.makeText(this, "🔁 Lặp lại tất cả", Toast.LENGTH_SHORT).show();
-                break;
-            case 2:
-                btnRepeat.setColorFilter(Color.parseColor("#FF6B35"));
-                Toast.makeText(this, "🔂 Lặp lại một bài", Toast.LENGTH_SHORT).show();
-                break;
+    // Save history for current song before switching
+    Song currentSong = playlist.get(currentSongIndex);
+    saveHistoryOnComplete(currentSong);
+    
+    // Reset tracking for next song
+    songStartTime = 0;
+    currentPlayingTrackId = null;
+
+    if (mediaPlayer != null && mediaPlayer.getCurrentPosition() > 3000) {
+        mediaPlayer.seekTo(0);
+        return;
+    }
+
+    currentSongIndex = (currentSongIndex - 1 + playlist.size()) % playlist.size();
+
+    imgCover.animate().alpha(0f).setDuration(200).withEndAction(() -> {
+        loadCurrentSong();
+        setupMediaPlayer();
+        imgCover.animate().alpha(1f).setDuration(300).start();
+    }).start();
+}
+
+private void playCurrentSong() {
+    loadCurrentSong();
+    setupMediaPlayer();
+}
+
+private void updateRepeatButton() {
+    switch (repeatMode) {
+        case 0:
+            btnRepeat.setColorFilter(Color.WHITE);
+            Toast.makeText(this, "🔁 Tắt lặp lại", Toast.LENGTH_SHORT).show();
+            break;
+        case 1:
+            btnRepeat.setColorFilter(dominantColor);
+            Toast.makeText(this, "🔁 Lặp lại tất cả", Toast.LENGTH_SHORT).show();
+            break;
+        case 2:
+            btnRepeat.setColorFilter(Color.parseColor("#FF6B35"));
+            Toast.makeText(this, "🔂 Lặp lại một bài", Toast.LENGTH_SHORT).show();
+            break;
+    }
+}
+
+private void fetchLyrics(String artist, String title) {
+    try {
+        String apiUrl = "https://lyrics.lewdhutao.tech/?title=" +
+                title.replace(" ", "%20") + "&artist=" + artist.replace(" ", "%20");
+
+        URL url = new URL(apiUrl);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(10000);
+
+        if (conn.getResponseCode() == 200) {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            reader.close();
+
+            JSONObject json = new JSONObject(sb.toString());
+            String lyrics = json.optString("lyrics", "Không tìm thấy lời bài hát");
+
+            runOnUiThread(() -> {
+                txtLyrics.setText(lyrics);
+                txtLyrics.setAlpha(0f);
+                txtLyrics.animate().alpha(1f).setDuration(500).start();
+            });
         }
+    } catch (Exception e) {
+        Log.e(TAG, "Lyrics error: " + e.getMessage());
+        runOnUiThread(() -> txtLyrics.setText("Không tải được lời bài hát"));
+    }
+}
+
+private void startSeekBarUpdater() {
+    updateSeekBar = new Runnable() {
+        @Override
+        public void run() {
+            if (mediaPlayer != null && isPlaying) {
+                try {
+                    int currentPos = mediaPlayer.getCurrentPosition();
+                    seekBar.setProgress(currentPos);
+                    txtCurrentTime.setText(formatTime(currentPos));
+                    handler.postDelayed(this, 500);
+                } catch (Exception e) {
+                    Log.e(TAG, "Update error: " + e.getMessage());
+                }
+            }
+        }
+    };
+    handler.post(updateSeekBar);
+}
+
+private String formatTime(int millis) {
+    long minutes = TimeUnit.MILLISECONDS.toMinutes(millis);
+    long seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60;
+    return String.format("%02d:%02d", minutes, seconds);
+}
+
+private void startDiscAnimation() {
+    if (rotateAnimation == null) {
+        rotateAnimation = new RotateAnimation(
+                0f, 360f,
+                Animation.RELATIVE_TO_SELF, 0.5f,
+                Animation.RELATIVE_TO_SELF, 0.5f
+        );
+        rotateAnimation.setDuration(20000);
+        rotateAnimation.setRepeatCount(Animation.INFINITE);
+        rotateAnimation.setInterpolator(new LinearInterpolator());
+    }
+    imgCover.startAnimation(rotateAnimation);
+}
+
+private void stopDiscAnimation() {
+    if (imgCover != null) {
+        imgCover.clearAnimation();
+    }
+}
+
+@Override
+protected void onDestroy() {
+    super.onDestroy();
+
+    // Save history for current playing song before destroying
+    if (playlist != null && !playlist.isEmpty() && currentSongIndex >= 0 && currentSongIndex < playlist.size()) {
+        Song currentSong = playlist.get(currentSongIndex);
+        saveHistoryOnComplete(currentSong);
+        // Reset tracking
+        songStartTime = 0;
+        currentPlayingTrackId = null;
     }
 
-    private void fetchLyrics(String artist, String title) {
+    if (mediaPlayer != null) {
         try {
-            String apiUrl = "https://lyrics.lewdhutao.tech/?title=" +
-                    title.replace(" ", "%20") + "&artist=" + artist.replace(" ", "%20");
-
-            URL url = new URL(apiUrl);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(10000);
-            conn.setReadTimeout(10000);
-
-            if (conn.getResponseCode() == 200) {
-                BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    sb.append(line);
-                }
-                reader.close();
-
-                JSONObject json = new JSONObject(sb.toString());
-                String lyrics = json.optString("lyrics", "Không tìm thấy lời bài hát");
-
-                runOnUiThread(() -> {
-                    txtLyrics.setText(lyrics);
-                    txtLyrics.setAlpha(0f);
-                    txtLyrics.animate().alpha(1f).setDuration(500).start();
-                });
-            }
+            if (mediaPlayer.isPlaying()) mediaPlayer.stop();
+            mediaPlayer.release();
         } catch (Exception e) {
-            Log.e(TAG, "Lyrics error: " + e.getMessage());
-            runOnUiThread(() -> txtLyrics.setText("Không tải được lời bài hát"));
+            Log.e(TAG, "Release error: " + e.getMessage());
         }
+        mediaPlayer = null;
     }
-
-    private void startSeekBarUpdater() {
-        updateSeekBar = new Runnable() {
-            @Override
-            public void run() {
-                if (mediaPlayer != null && isPlaying) {
-                    try {
-                        int currentPos = mediaPlayer.getCurrentPosition();
-                        seekBar.setProgress(currentPos);
-                        txtCurrentTime.setText(formatTime(currentPos));
-                        handler.postDelayed(this, 500);
-                    } catch (Exception e) {
-                        Log.e(TAG, "Update error: " + e.getMessage());
-                    }
-                }
-            }
-        };
-        handler.post(updateSeekBar);
+    if (handler != null) {
+        handler.removeCallbacks(updateSeekBar);
     }
-
-    private String formatTime(int millis) {
-        long minutes = TimeUnit.MILLISECONDS.toMinutes(millis);
-        long seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60;
-        return String.format("%02d:%02d", minutes, seconds);
-    }
-
-    private void startDiscAnimation() {
-        if (rotateAnimation == null) {
-            rotateAnimation = new RotateAnimation(
-                    0f, 360f,
-                    Animation.RELATIVE_TO_SELF, 0.5f,
-                    Animation.RELATIVE_TO_SELF, 0.5f
-            );
-            rotateAnimation.setDuration(20000);
-            rotateAnimation.setRepeatCount(Animation.INFINITE);
-            rotateAnimation.setInterpolator(new LinearInterpolator());
-        }
-        imgCover.startAnimation(rotateAnimation);
-    }
-
-    private void stopDiscAnimation() {
-        if (imgCover != null) {
-            imgCover.clearAnimation();
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (mediaPlayer != null) {
-            try {
-                if (mediaPlayer.isPlaying()) mediaPlayer.stop();
-                mediaPlayer.release();
-            } catch (Exception e) {
-                Log.e(TAG, "Release error: " + e.getMessage());
-            }
-            mediaPlayer = null;
-        }
-        if (handler != null) {
-            handler.removeCallbacks(updateSeekBar);
-        }
-    }
+}
 
     @Override
     protected void onPause() {
         super.onPause();
+
+        // Pause playback when app goes to background
         if (mediaPlayer != null && isPlaying) {
             mediaPlayer.pause();
             isPlaying = false;
             stopDiscAnimation();
             btnPlayPause.setImageResource(android.R.drawable.ic_media_play);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        
+        // Save history when app goes to background for a longer time
+        if (playlist != null && !playlist.isEmpty() && currentSongIndex >= 0 && currentSongIndex < playlist.size()) {
+            Song currentSong = playlist.get(currentSongIndex);
+            if (songStartTime > 0) {
+                // Save current progress
+                Log.d(TAG, "💾 App stopped, saving history...");
+                saveHistoryOnComplete(currentSong);
+                // Reset tracking
+                songStartTime = 0;
+                currentPlayingTrackId = null;
+            }
         }
     }
 }

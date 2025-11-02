@@ -10,10 +10,12 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.musicplayer.MainActivity;
 import com.example.musicplayer.R;
+import com.example.musicplayer.api.SpotifyApi;
 import com.google.gson.annotations.SerializedName;
 
 import retrofit2.Call;
@@ -28,41 +30,125 @@ public class LoginActivity extends AppCompatActivity {
 
     // --- Nested classes and interfaces to keep logic in one file ---
 
-    /**
-     * Manages user session, storing the auth token securely.
-     */
     public static class SessionManager {
+        private static final String TAG = "SessionManager";
         private static final String PREF_NAME = "AppSession";
         private static final String KEY_ACCESS_TOKEN = "access_token";
         private static final String KEY_EXPIRES_AT = "expires_at";
-
         private final SharedPreferences prefs;
+        private final Context context;
 
         public SessionManager(Context context) {
-            prefs = context.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            this.context = context.getApplicationContext();
+            prefs = this.context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         }
 
         public void saveToken(String accessToken, int expiresInSeconds) {
+            if (accessToken == null || accessToken.trim().isEmpty()) {
+                Log.e(TAG, "❌ Attempted to save null or empty token!");
+                return;
+            }
+
             long expiresAt = System.currentTimeMillis() + (expiresInSeconds * 1000L);
             SharedPreferences.Editor editor = prefs.edit();
             editor.putString(KEY_ACCESS_TOKEN, accessToken);
             editor.putLong(KEY_EXPIRES_AT, expiresAt);
-            editor.apply();
+            boolean saved = editor.commit(); // Use commit() instead of apply() to ensure immediate save
+
+            if (saved) {
+                Log.d(TAG, "✅ Token saved successfully. Expires in " + expiresInSeconds + " seconds");
+                Log.d(TAG, "🔑 Token preview: " + accessToken.substring(0, Math.min(20, accessToken.length())) + "...");
+            } else {
+                Log.e(TAG, "❌ Failed to save token to SharedPreferences!");
+            }
         }
 
+        /**
+         * Get access token without validation (may return expired token)
+         */
         public String getAccessToken() {
-            return prefs.getString(KEY_ACCESS_TOKEN, null);
+            String token = prefs.getString(KEY_ACCESS_TOKEN, null);
+            if (token == null || token.trim().isEmpty()) {
+                Log.w(TAG, "⚠️ getAccessToken() returned null or empty token");
+                return null;
+            }
+            return token;
         }
 
-        public boolean isTokenValid() {
+        /**
+         * Get access token only if it's valid (not null, not empty, not expired)
+         * Returns null if token is invalid
+         */
+        public String getValidAccessToken() {
+            String token = prefs.getString(KEY_ACCESS_TOKEN, null);
+
+            // Check if token exists
+            if (token == null || token.trim().isEmpty()) {
+                Log.e(TAG, "❌ Token is null or empty!");
+                return null;
+            }
+
+            // Check if token is expired
             long expiresAt = prefs.getLong(KEY_EXPIRES_AT, 0);
-            return getAccessToken() != null && System.currentTimeMillis() < expiresAt;
+            long currentTime = System.currentTimeMillis();
+
+            if (currentTime >= expiresAt) {
+                long expiredSince = (currentTime - expiresAt) / 1000; // seconds
+                Log.e(TAG, "❌ Token expired " + expiredSince + " seconds ago!");
+                Log.e(TAG, "🔴 Expired at: " + new java.util.Date(expiresAt));
+                return null;
+            }
+
+            // Token is valid
+            long timeRemaining = (expiresAt - currentTime) / 1000; // seconds
+            Log.d(TAG, "✅ Token is valid. Time remaining: " + timeRemaining + " seconds (" + (timeRemaining / 3600)
+                    + " hours)");
+
+            return token;
+        }
+
+        /**
+         * Check if token is valid (exists and not expired)
+         */
+        public boolean isTokenValid() {
+            String token = prefs.getString(KEY_ACCESS_TOKEN, null);
+            long expiresAt = prefs.getLong(KEY_EXPIRES_AT, 0);
+            long currentTime = System.currentTimeMillis();
+
+            // Log detailed status
+            if (token == null || token.trim().isEmpty()) {
+                Log.w(TAG, "⚠️ isTokenValid(): Token is null or empty");
+                return false;
+            }
+
+            if (currentTime >= expiresAt) {
+                long expiredSince = (currentTime - expiresAt) / 1000;
+                Log.w(TAG, "⚠️ isTokenValid(): Token expired " + expiredSince + " seconds ago");
+                return false;
+            }
+
+            long timeRemaining = (expiresAt - currentTime) / 1000;
+            Log.d(TAG, "✅ isTokenValid(): Token valid for " + timeRemaining + " more seconds");
+            return true;
+        }
+
+        /**
+         * Get remaining time in seconds before token expires
+         * Returns 0 if token is expired or doesn't exist
+         */
+        public long getRemainingTimeSeconds() {
+            long expiresAt = prefs.getLong(KEY_EXPIRES_AT, 0);
+            long currentTime = System.currentTimeMillis();
+            long remaining = (expiresAt - currentTime) / 1000;
+            return Math.max(0, remaining);
+        }
+
+        public void clear() {
+            Log.d(TAG, "🗑️ Clearing session data");
+            prefs.edit().clear().apply();
         }
     }
 
-    /**
-     * Data model for the login request body.
-     */
     public static class LoginRequest {
         private final String username;
         private final String password;
@@ -73,9 +159,6 @@ public class LoginActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Data model for the successful authentication response.
-     */
     public static class AuthTokenResponse {
         @SerializedName("access_token")
         public String accessToken;
@@ -84,17 +167,12 @@ public class LoginActivity extends AppCompatActivity {
         public User user;
 
         public static class User {
+            @SerializedName("email")
+            public String email;
+
             @SerializedName("full_name")
             public String fullName;
         }
-    }
-
-    /**
-     * Retrofit interface for authentication APIs.
-     */
-    public interface AuthApi {
-        @POST("/api/auth/login")
-        Call<AuthTokenResponse> login(@Body LoginRequest loginRequest);
     }
 
     // --- Activity Implementation ---
@@ -104,11 +182,12 @@ public class LoginActivity extends AppCompatActivity {
     private static final int TOKEN_EXPIRATION_SECONDS = 604800; // 7 days
 
     private SessionManager sessionManager;
-    private AuthApi authApi;
+    private SpotifyApi authApi;
 
     private EditText etUsername;
     private EditText etPassword;
     private Button btnLogin;
+    private TextView tvGoToRegister;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -117,7 +196,6 @@ public class LoginActivity extends AppCompatActivity {
         sessionManager = new SessionManager(this);
 
         if (sessionManager.isTokenValid()) {
-            Log.d(TAG, "Token is valid, starting MainActivity");
             startMainActivity();
             return;
         }
@@ -134,21 +212,23 @@ public class LoginActivity extends AppCompatActivity {
                 .baseUrl(API_BASE_URL)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
-        authApi = retrofit.create(AuthApi.class);
+        authApi = retrofit.create(SpotifyApi.class);
     }
 
     private void initViews() {
         etUsername = findViewById(R.id.etUsername);
         etPassword = findViewById(R.id.etPassword);
         btnLogin = findViewById(R.id.btnLogin);
-        TextView tvGoToRegister = findViewById(R.id.tvGoToRegister);
-        tvGoToRegister.setOnClickListener(v -> 
-            Toast.makeText(this, "Chức năng đăng ký chưa được cài đặt", Toast.LENGTH_SHORT).show()
-        );
+        tvGoToRegister = findViewById(R.id.tvGoToRegister);
     }
 
     private void setupListeners() {
         btnLogin.setOnClickListener(v -> handleLogin());
+        tvGoToRegister.setOnClickListener(v -> {
+            // Navigate to RegisterActivity
+            Intent intent = new Intent(LoginActivity.this, RegisterActivity.class);
+            startActivity(intent);
+        });
     }
 
     private void handleLogin() {
@@ -164,21 +244,20 @@ public class LoginActivity extends AppCompatActivity {
 
         authApi.login(loginRequest).enqueue(new Callback<AuthTokenResponse>() {
             @Override
-            public void onResponse(Call<AuthTokenResponse> call, Response<AuthTokenResponse> response) {
+            public void onResponse(@NonNull Call<AuthTokenResponse> call,
+                    @NonNull Response<AuthTokenResponse> response) {
                 if (response.isSuccessful() && response.body() != null) {
                     AuthTokenResponse tokenResponse = response.body();
                     sessionManager.saveToken(tokenResponse.accessToken, TOKEN_EXPIRATION_SECONDS);
-                    Log.d(TAG, "Login successful. Token saved.");
-                    Toast.makeText(LoginActivity.this, "Đăng nhập thành công!", Toast.LENGTH_SHORT).show();
                     startMainActivity();
                 } else {
-                    Toast.makeText(LoginActivity.this, "Tên đăng nhập hoặc mật khẩu không đúng", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(LoginActivity.this, "Tên đăng nhập hoặc mật khẩu không đúng", Toast.LENGTH_SHORT)
+                            .show();
                 }
             }
 
             @Override
-            public void onFailure(Call<AuthTokenResponse> call, Throwable t) {
-                Log.e(TAG, "Login API call failed: ", t);
+            public void onFailure(@NonNull Call<AuthTokenResponse> call, @NonNull Throwable t) {
                 Toast.makeText(LoginActivity.this, "Lỗi kết nối: " + t.getMessage(), Toast.LENGTH_SHORT).show();
             }
         });

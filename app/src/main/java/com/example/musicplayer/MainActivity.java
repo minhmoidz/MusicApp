@@ -1,4 +1,3 @@
-
 package com.example.musicplayer;
 
 import android.content.Intent;
@@ -27,6 +26,7 @@ import com.example.musicplayer.api.SpotifySearchResponse;
 import com.example.musicplayer.api.SpotifyTrack;
 import com.example.musicplayer.chatbot.ChatbotActivity;
 import com.example.musicplayer.libary.LibraryActivity;
+import com.example.musicplayer.login.LoginActivity;
 import com.example.musicplayer.playlist.PlayerActivity;
 import com.example.musicplayer.playlist.PlaylistsActivity;
 import com.example.musicplayer.profile.AboutActivity;
@@ -38,9 +38,13 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.navigation.NavigationView;
 import com.google.gson.JsonObject;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import okhttp3.Interceptor;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
@@ -61,12 +65,13 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
     // Data
     private ArrayList<Song> songList;
-    private ArrayList<Song> allSongs; // To restore after search
+    private ArrayList<Song> allSongs;
     private MusicAdapter adapter;
     private SpotifyApi spotifyApi;
-    private boolean isSearching = false;
+    private LoginActivity.SessionManager sessionManager;
+    private LoginActivity.AuthTokenResponse.User currentUser;
 
-    // Search handler
+    // Search
     private Handler searchHandler = new Handler(Looper.getMainLooper());
     private Runnable searchRunnable;
 
@@ -74,6 +79,8 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        sessionManager = new LoginActivity.SessionManager(this);
 
         setupRetrofit();
         setupDrawer();
@@ -83,61 +90,100 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         setupTabs();
         setupChatbot();
 
-        loadRecommendedSongs(); // Load initial songs
+        loadInitialData();
     }
 
     private void setupRetrofit() {
+        OkHttpClient okHttpClient = new OkHttpClient.Builder()
+                .addInterceptor(chain -> {
+                    String token = sessionManager.getAccessToken();
+                    Request.Builder builder = chain.request().newBuilder();
+                    if (token != null) {
+                        builder.header("Authorization", "Bearer " + token);
+                    }
+                    return chain.proceed(builder.build());
+                })
+                .build();
+
         Retrofit retrofit = new Retrofit.Builder()
                 .baseUrl(API_BASE_URL)
+                .client(okHttpClient)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
+
         spotifyApi = retrofit.create(SpotifyApi.class);
     }
 
-    private void loadRecommendedSongs() {
-        Log.d(TAG, "Loading recommended songs from Spotify API...");
+    private void loadInitialData() {
+        loadUserProfile();
+        loadRecommendedSongs();
+    }
 
+    private void loadUserProfile() {
+        spotifyApi.getMe().enqueue(new Callback<LoginActivity.AuthTokenResponse.User>() {
+            @Override
+            public void onResponse(@NonNull Call<LoginActivity.AuthTokenResponse.User> call, @NonNull Response<LoginActivity.AuthTokenResponse.User> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    currentUser = response.body();
+                    updateDrawerHeader();
+                } else {
+                    handleLogout();
+                }
+            }
+
+            @Override
+            public void onFailure(@NonNull Call<LoginActivity.AuthTokenResponse.User> call, @NonNull Throwable t) {
+                Toast.makeText(MainActivity.this, "Could not load user profile", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private void updateDrawerHeader() {
+        if (currentUser != null) {
+            View headerView = navigationView.getHeaderView(0);
+            TextView tvUserName = headerView.findViewById(R.id.tvUserName);
+            TextView tvUserEmail = headerView.findViewById(R.id.tvUserEmail);
+            tvUserName.setText(currentUser.fullName);
+            tvUserEmail.setText(currentUser.email);
+        }
+    }
+
+    private void loadRecommendedSongs() {
         JsonObject requestBody = new JsonObject();
         requestBody.addProperty("seed_genres", "pop,rock,vietnamese");
         requestBody.addProperty("limit", 20);
 
         spotifyApi.getRecommendations(requestBody).enqueue(new Callback<List<SpotifyTrack>>() {
             @Override
-            public void onResponse(Call<List<SpotifyTrack>> call, Response<List<SpotifyTrack>> response) {
+            public void onResponse(@NonNull Call<List<SpotifyTrack>> call, @NonNull Response<List<SpotifyTrack>> response) {
                 if (response.isSuccessful() && response.body() != null) {
                     updateSongList(response.body());
-                } else {
-                    Toast.makeText(MainActivity.this, "Error loading songs", Toast.LENGTH_SHORT).show();
                 }
             }
 
             @Override
-            public void onFailure(Call<List<SpotifyTrack>> call, Throwable t) {
-                Toast.makeText(MainActivity.this, "Failure: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            public void onFailure(@NonNull Call<List<SpotifyTrack>> call, @NonNull Throwable t) {
+                 Toast.makeText(MainActivity.this, "Failed to load recommendations", Toast.LENGTH_SHORT).show();
             }
         });
     }
 
     private void searchSongs(String query) {
-        Log.d(TAG, "Searching for: " + query);
-
         JsonObject requestBody = new JsonObject();
         requestBody.addProperty("query", query);
         requestBody.addProperty("limit", 20);
 
         spotifyApi.searchTracks(requestBody).enqueue(new Callback<SpotifySearchResponse>() {
             @Override
-            public void onResponse(Call<SpotifySearchResponse> call, Response<SpotifySearchResponse> response) {
+            public void onResponse(@NonNull Call<SpotifySearchResponse> call, @NonNull Response<SpotifySearchResponse> response) {
                 if (response.isSuccessful() && response.body() != null) {
                     updateSongList(response.body().tracks);
-                } else {
-                    Toast.makeText(MainActivity.this, "Search failed", Toast.LENGTH_SHORT).show();
                 }
             }
 
             @Override
-            public void onFailure(Call<SpotifySearchResponse> call, Throwable t) {
-                Toast.makeText(MainActivity.this, "Error: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            public void onFailure(@NonNull Call<SpotifySearchResponse> call, @NonNull Throwable t) {
+                Toast.makeText(MainActivity.this, "Search failed", Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -145,59 +191,50 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     private void updateSongList(List<SpotifyTrack> tracks) {
         songList.clear();
         for (SpotifyTrack track : tracks) {
-            Song song = new Song(
-                    track.id,
-                    track.name,
-                    track.getArtistsString(),
-                    track.imageUrl,
-                    track.previewUrl,
-                    ""
-            );
-            songList.add(song);
+            songList.add(new Song(track.id, track.name, track.getArtistsString(), track.imageUrl, track.previewUrl, "", track.album, track.durationMs, track.popularity, track.spotifyUrl));
         }
-
-        if (!isSearching) {
-            allSongs.clear();
-            allSongs.addAll(songList);
-        }
-
+        allSongs.clear();
+        allSongs.addAll(songList);
         adapter.notifyDataSetChanged();
     }
 
     @Override
     public void onItemClick(String trackId) {
-        Log.d(TAG, "Item clicked: " + trackId);
-        spotifyApi.getTrackDetails(trackId).enqueue(new Callback<SpotifyTrack>() {
-            @Override
-            public void onResponse(Call<SpotifyTrack> call, Response<SpotifyTrack> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    SpotifyTrack track = response.body();
-                    // For simplicity, we play only the selected song
-                    ArrayList<String> playlistTitles = new ArrayList<>();
-                    ArrayList<String> playlistArtists = new ArrayList<>();
-                    ArrayList<String> playlistCovers = new ArrayList<>();
-                    ArrayList<String> playlistPreviews = new ArrayList<>();
+        ArrayList<String> playlistTitles = new ArrayList<>();
+        ArrayList<String> playlistArtists = new ArrayList<>();
+        ArrayList<String> playlistCovers = new ArrayList<>();
+        ArrayList<String> playlistPreviews = new ArrayList<>();
+        ArrayList<String> playlistIds = new ArrayList<>();
+        ArrayList<Integer> playlistDurations = new ArrayList<>();
+        int clickedIndex = -1;
 
-                    playlistTitles.add(track.name);
-                    playlistArtists.add(track.getArtistsString());
-                    playlistCovers.add(track.imageUrl);
-                    playlistPreviews.add(track.previewUrl);
+        for (int i = 0; i < songList.size(); i++) {
+            Song song = songList.get(i);
+            playlistTitles.add(song.title);
+            playlistArtists.add(song.artist);
+            playlistCovers.add(song.cover);
+            playlistPreviews.add(song.audio != null ? song.audio : "");
+            playlistIds.add(song.id);
+            playlistDurations.add(song.durationMs);
 
-                    Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
-                    intent.putStringArrayListExtra("playlist_titles", playlistTitles);
-                    intent.putStringArrayListExtra("playlist_artists", playlistArtists);
-                    intent.putStringArrayListExtra("playlist_covers", playlistCovers);
-                    intent.putStringArrayListExtra("playlist_previews", playlistPreviews);
-                    intent.putExtra("current_index", 0);
-                    startActivity(intent);
-                }
+            if (song.id.equals(trackId)) {
+                clickedIndex = i;
             }
+        }
 
-            @Override
-            public void onFailure(Call<SpotifyTrack> call, Throwable t) {
-                Toast.makeText(MainActivity.this, "Could not load track details", Toast.LENGTH_SHORT).show();
-            }
-        });
+        if (clickedIndex != -1) {
+            Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
+            intent.putStringArrayListExtra("playlist_titles", playlistTitles);
+            intent.putStringArrayListExtra("playlist_artists", playlistArtists);
+            intent.putStringArrayListExtra("playlist_covers", playlistCovers);
+            intent.putStringArrayListExtra("playlist_previews", playlistPreviews);
+            intent.putStringArrayListExtra("playlist_ids", playlistIds);
+            intent.putIntegerArrayListExtra("playlist_durations", playlistDurations);
+            intent.putExtra("current_index", clickedIndex);
+            startActivity(intent);
+        } else {
+            Toast.makeText(this, "Could not find the clicked song.", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void setupRecyclerView() {
@@ -210,67 +247,85 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         recyclerView.setAdapter(adapter);
     }
 
-    // --- Other setup methods are unchanged ---
-
     private void setupDrawer() {
         drawerLayout = findViewById(R.id.drawerLayout);
         navigationView = findViewById(R.id.navigationView);
         navigationView.setNavigationItemSelectedListener(this);
-        TextView btnMenu = findViewById(R.id.btnMenu);
-        if (btnMenu != null) {
-            btnMenu.setOnClickListener(v -> {
-                if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-                    drawerLayout.closeDrawer(GravityCompat.START);
-                } else {
-                    drawerLayout.openDrawer(GravityCompat.START);
-                }
-            });
-        }
-        View headerView = navigationView.getHeaderView(0);
-        TextView tvUserName = headerView.findViewById(R.id.tvUserName);
-        TextView tvUserEmail = headerView.findViewById(R.id.tvUserEmail);
-        tvUserName.setText("Music Lover");
-        tvUserEmail.setText("musiclover@zingmp3.vn");
-    }
-
-    private void setupSearchBar() {
-        etSearchBar = findViewById(R.id.etSearch);
-        if (etSearchBar != null) {
-            etSearchBar.addTextChangedListener(new TextWatcher() {
-                @Override
-                public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-
-                @Override
-                public void onTextChanged(CharSequence s, int start, int before, int count) {
-                    String query = s.toString().trim();
-                    searchHandler.removeCallbacks(searchRunnable);
-
-                    if (query.isEmpty()) {
-                        isSearching = false;
-                        songList.clear();
-                        songList.addAll(allSongs);
-                        adapter.notifyDataSetChanged();
-                    } else {
-                        isSearching = true;
-                        searchRunnable = () -> searchSongs(query);
-                        searchHandler.postDelayed(searchRunnable, SEARCH_DELAY);
-                    }
-                }
-
-                @Override
-                public void afterTextChanged(Editable s) {}
-            });
-        }
+        findViewById(R.id.btnMenu).setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
     }
 
     private void setupTopBar() {
-        ImageView btnProfile = findViewById(R.id.btnProfile);
-        if (btnProfile != null) {
-            btnProfile.setOnClickListener(v -> {
-                Intent intent = new Intent(this, ProfileActivity.class);
-                startActivity(intent);
-            });
+        findViewById(R.id.btnProfile).setOnClickListener(v -> openProfile());
+    }
+
+    private void openProfile() {
+        if (currentUser != null) {
+            Intent intent = new Intent(this, ProfileActivity.class);
+            intent.putExtra("USER_NAME", currentUser.fullName);
+            intent.putExtra("USER_EMAIL", currentUser.email);
+            startActivity(intent);
+        } else {
+            Toast.makeText(this, "User data not loaded yet", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void handleLogout() {
+        sessionManager.clear();
+        Intent intent = new Intent(this, LoginActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(intent);
+        finish();
+    }
+
+    @Override
+    public boolean onNavigationItemSelected(@NonNull MenuItem item) {
+        int id = item.getItemId();
+        if (id == R.id.nav_profile) {
+            openProfile();
+        } else if (id == R.id.nav_settings) {
+            startActivity(new Intent(this, SettingsActivity.class));
+        } else if (id == R.id.nav_logout) {
+            handleLogout();
+        } else if (id == R.id.nav_library) {
+            startActivity(new Intent(this, LibraryActivity.class));
+        } else if (id == R.id.nav_favorites) {
+            startActivity(new Intent(this, FavoritesActivity.class));
+        } else if (id == R.id.nav_playlists) {
+            startActivity(new Intent(this, PlaylistsActivity.class));
+        } else if (id == R.id.nav_history) {
+            startActivity(new Intent(this, HistoryActivity.class));
+        }
+
+        drawerLayout.closeDrawer(GravityCompat.START);
+        return true;
+    }
+    
+    private void setupSearchBar() {
+        etSearchBar = findViewById(R.id.etSearch);
+        etSearchBar.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                String query = s.toString().trim();
+                searchHandler.removeCallbacks(searchRunnable);
+
+                if (query.isEmpty()) {
+                    if (songList.size() != allSongs.size()) {
+                        songList.clear();
+                        songList.addAll(allSongs);
+                        adapter.notifyDataSetChanged();
+                    }
+                } else {
+                    searchRunnable = () -> searchSongs(query);
+                    searchHandler.postDelayed(searchRunnable, SEARCH_DELAY);
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
     }
 
     private void setupTabs() {
@@ -285,7 +340,6 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             clickedTab.setTextColor(0xFFFFFFFF);
             clickedTab.setBackgroundResource(R.drawable.tab_selected);
             clearSearchBar();
-            isSearching = false;
 
             int id = v.getId();
             if (id == R.id.tabAll) {
@@ -303,19 +357,14 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         tabVPop.setOnClickListener(tabClickListener);
         tabKPop.setOnClickListener(tabClickListener);
         tabUSUK.setOnClickListener(tabClickListener);
-
-        tabAll.setTextColor(0xFFFFFFFF);
-        tabAll.setBackgroundResource(R.drawable.tab_selected);
     }
 
     private void setupChatbot(){
         FloatingActionButton btnChatbot = findViewById(R.id.btnChatBot);
-        if (btnChatbot != null) {
-            btnChatbot.setOnClickListener(v -> {
-                Intent intent = new Intent(this, ChatbotActivity.class);
-                startActivity(intent);
-            });
-        }
+        btnChatbot.setOnClickListener(v -> {
+            Intent intent = new Intent(this, ChatbotActivity.class);
+            startActivity(intent);
+        });
     }
 
     private void resetAllTabs(TextView... tabs) {
@@ -332,32 +381,6 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             etSearchBar.setText("");
             etSearchBar.clearFocus();
         }
-    }
-
-    @Override
-    public boolean onNavigationItemSelected(@NonNull MenuItem item) {
-        int id = item.getItemId();
-        if (id == R.id.nav_home) {
-            // Already home
-        } else if (id == R.id.nav_library) {
-            startActivity(new Intent(this, LibraryActivity.class));
-        } else if (id == R.id.nav_favorites) {
-            startActivity(new Intent(this, FavoritesActivity.class));
-        } else if (id == R.id.nav_playlists) {
-            startActivity(new Intent(this, PlaylistsActivity.class));
-        } else if (id == R.id.nav_history) {
-            startActivity(new Intent(this, HistoryActivity.class));
-        } else if (id == R.id.nav_profile) {
-            startActivity(new Intent(this, ProfileActivity.class));
-        } else if (id == R.id.nav_settings) {
-            startActivity(new Intent(this, SettingsActivity.class));
-        } else if (id == R.id.nav_about) {
-            startActivity(new Intent(this, AboutActivity.class));
-        } else if (id == R.id.nav_logout) {
-            Toast.makeText(this, "Đăng xuất", Toast.LENGTH_SHORT).show();
-        }
-        drawerLayout.closeDrawer(GravityCompat.START);
-        return true;
     }
 
     @Override
